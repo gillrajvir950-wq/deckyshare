@@ -5,6 +5,7 @@ import os
 import secrets
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
@@ -39,6 +40,7 @@ def upload(base, path):
     total = path.stat().st_size
     upload_id = secrets.token_hex(16)
     offset = 0
+    result = {}
     started = time.perf_counter()
     with path.open("rb", buffering=0) as f:
         first = True
