@@ -1,0 +1,14 @@
+{
+  "name": "DeckyShare",
+  "author": "Gillrv",
+  "flags": [],
+  "publish": {
+    "tags": [
+      "files",
+      "sharing",
+      "transfer",
+      "network"
+    ],
+    "description": "DeckyShare: wireless two-way file transfer between Steam Deck and phone/PC."
+  }
+}
