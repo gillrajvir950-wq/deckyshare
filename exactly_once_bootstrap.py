@@ -1,10 +1,9 @@
-"""Install DeckyShare's v1.1 exactly-once upload runtime.
-
-Kept separate from main.py so the reliability layer stays reviewable and can be
-removed/refactored without touching the established Decky backend surface.
-"""
+"""Install DeckyShare's v1.1 reliability runtime."""
 
 
 def install(core):
     from exactly_once import install as install_exactly_once
+    from restart_hardening import install as install_restart_hardening
+
     install_exactly_once(core)
+    install_restart_hardening(core)
