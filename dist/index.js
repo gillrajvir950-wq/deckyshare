@@ -51,11 +51,20 @@ function showTransferResult(api,t){
   if(t.status==="failed"&&shouldNotify("failed",t))toast(api,`Transfer failed: ${t.name||"file"}`);
   else if(t.status==="complete"&&t.direction==="download"&&shouldNotify("sent",t))toast(api,`Sent to phone / PC: ${t.name||"file"}`);
 }
+function dirname(p){
+  if(!p)return null;
+  const i=p.lastIndexOf("/");
+  return i>0?p.slice(0,i):"/";
+}
 
-function Bar({value}){return h("div",{style:{height:8,borderRadius:6,background:"rgba(255,255,255,.15)",overflow:"hidden",marginTop:6}},h("div",{style:{height:"100%",width:`${Math.max(0,Math.min(100,value||0))}%`,background:"#66c0f4"}}));}
-function Btn({children,onClick,disabled=false}){return h("button",{disabled,onClick,style:{width:"100%",padding:"12px 13px",margin:"5px 0",borderRadius:12,border:"1px solid rgba(130,190,255,.22)",background:disabled?"rgba(255,255,255,.05)":"linear-gradient(180deg,rgba(44,79,120,.55),rgba(25,48,78,.55))",color:"white",fontSize:14,textAlign:"left"}},children);}
-function Card({children,style={}}){return h("div",{style:{background:"linear-gradient(180deg,rgba(22,42,68,.88),rgba(15,29,49,.88))",border:"1px solid rgba(120,180,255,.18)",borderRadius:14,padding:12,margin:"9px 0",...style}},children);}
-function SectionTitle({icon,title,sub}){return h("div",{style:{display:"flex",gap:9,alignItems:"center",marginBottom:8}},h("div",{style:{fontSize:22}},icon),h("div",null,h("div",{style:{fontWeight:750,fontSize:16}},title),sub&&h("div",{style:{fontSize:11,opacity:.65,marginTop:1}},sub)));}
+function Bar({value}){return h("div",{style:{height:8,borderRadius:6,background:"rgba(255,255,255,.12)",overflow:"hidden",marginTop:7}},h("div",{style:{height:"100%",width:`${Math.max(0,Math.min(100,value||0))}%`,background:"#66c0f4"}}));}
+function Btn({children,onClick,disabled=false}){return h("button",{disabled,onClick,style:{width:"100%",padding:"11px 12px",margin:"5px 0",borderRadius:11,border:"1px solid rgba(130,190,255,.20)",background:disabled?"rgba(255,255,255,.05)":"rgba(34,67,106,.72)",color:"white",fontSize:13,textAlign:"left"}},children);}
+function Card({children,style={}}){return h("div",{style:{background:"linear-gradient(180deg,rgba(22,42,68,.92),rgba(15,29,49,.92))",border:"1px solid rgba(120,180,255,.16)",borderRadius:15,padding:13,margin:"10px 0",boxShadow:"0 5px 18px rgba(0,0,0,.12)",...style}},children);}
+function SectionTitle({icon,title,sub}){return h("div",{style:{display:"flex",gap:9,alignItems:"center",marginBottom:9}},h("div",{style:{fontSize:21}},icon),h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:760,fontSize:15}},title),sub&&h("div",{style:{fontSize:11,opacity:.62,marginTop:1,lineHeight:1.3}},sub)));}
+function MiniButton({children,onClick,tone="normal"}){
+  const danger=tone==="danger";
+  return h("button",{onClick,style:{padding:"7px 9px",borderRadius:9,border:danger?"1px solid rgba(255,110,110,.34)":"1px solid rgba(120,180,255,.24)",background:danger?"rgba(255,70,70,.10)":"rgba(68,122,184,.13)",color:danger?"#ffd0d0":"#d9edff",fontSize:11,fontWeight:700}},children);
+}
 
 function connectDeckyBackend(){
   const init=window.__DECKY_SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED_deckyLoaderAPIInit;
@@ -67,7 +76,7 @@ function makePanel(){
   let backendAPI=null;
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
-    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled());
+    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false);
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
 
@@ -114,6 +123,14 @@ function makePanel(){
       try{setDeleteArmed(null);const r=await call("delete_received",{path:p});setStatus(s=>({...s,received:r&&r.received?r.received:(s.received||[]).filter(x=>x.path!==p)}));}
       catch(e){setDeleteArmed(null);setErr("Delete: "+String(e&&e.message||e));}
     }
+    async function copyAddress(){
+      if(!displayUrl)return;
+      try{
+        if(navigator.clipboard&&navigator.clipboard.writeText)await navigator.clipboard.writeText(displayUrl);
+        else throw new Error("Clipboard API unavailable");
+        setCopied(true);setTimeout(()=>setCopied(false),1400);
+      }catch(e){setErr("Copy address failed");}
+    }
     function toggleNotifications(){const next=!notifyOn;setNotifyOn(next);saveNotificationsEnabled(next);if(next)notifySeen.clear();else{receivedBatch=[];if(receivedBatchTimer){clearTimeout(receivedBatchTimer);receivedBatchTimer=null;}}}
 
     useEffect(()=>{bootstrap();},[]);
@@ -127,15 +144,44 @@ function makePanel(){
     if(err&&!status)return h("div",{style:{padding:12}},err,h(Btn,{onClick:bootstrap},"Retry backend"));
     if(!status)return h("div",{style:{padding:12}},"Starting DeckyShare backend…");
 
-    return h("div",{style:{padding:"4px 8px 16px",fontSize:14,color:"white"}},
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 11px"}},h("div",{style:{fontSize:30}},"◉"),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:800,fontSize:20}},"DeckyShare"),h("span",{style:{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:999,background:"rgba(80,160,255,.18)",color:"#9fd4ff"}},"v1.1-dev")),h("div",{style:{fontSize:11,color:"#9fc7ff"}},"Share files with your Steam Deck. Simple. Wireless. Fast."))),
-      h(Card,null,h(SectionTitle,{icon:"📡",title:"Connect phone / PC",sub:"Open this address on your phone or computer"}),h("div",{style:{fontSize:12,color:status.server_self_test?"#7ef29a":"#ffb3b3",marginBottom:8}},status.server_self_test?`● Server OK • ${status.listen}`:"● Server self-test failed"),h("div",{style:{display:"flex",gap:10,alignItems:"center"}},h("div",{style:{flex:1,minWidth:0,padding:9,borderRadius:10,background:"rgba(43,112,196,.25)",fontSize:10,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:"#69c6ff"}},displayUrl),displayQr&&h("img",{src:displayQr,style:{width:80,height:80,background:"white",padding:4,borderRadius:9}})),conns.length>1&&h("div",{style:{marginTop:7}},conns.map((c,i)=>h("button",{key:c.ip,onClick:()=>setConnIndex(i),style:{padding:"5px 7px",margin:2,borderRadius:7,border:i===connIndex?"1px solid #66c0f4":"1px solid rgba(255,255,255,.12)",background:i===connIndex?"rgba(102,192,244,.18)":"transparent",color:"white",fontSize:11}},c.interface)))),
-      h(Card,null,h(SectionTitle,{icon:"📁",title:"Browse Files",sub:"Tap a folder to open it"}),!status.selected&&!path&&h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}},roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{minHeight:64,padding:11,borderRadius:12,border:"1px solid rgba(104,170,255,.30)",background:"rgba(35,77,128,.68)",color:"white",fontWeight:700,textAlign:"left"}},`${r.name.startsWith("Drive:")?"💾":"📂"} ${r.name} ›`))),status.selected?h("div",null,h("div",{style:{fontWeight:700}},"✓ "+status.selected.name),h("div",{style:{fontSize:11,opacity:.65}},status.selected.size_human),h(Btn,{onClick:clearSelection},"Choose another file")):path&&h("div",null,h("div",{style:{display:"flex",gap:6}},h("button",{onClick:()=>{setPath(null);setParent(null);setItems([]);},style:{flex:1,padding:8,borderRadius:9,border:"1px solid rgba(102,192,244,.35)",background:"rgba(102,192,244,.12)",color:"white"}},"← Locations"),parent&&h("button",{onClick:()=>browse(parent),style:{flex:1,padding:8,borderRadius:9,border:"1px solid rgba(255,255,255,.14)",background:"transparent",color:"white"}},"↑ Up")),h("div",{style:{fontSize:10,opacity:.55,margin:"7px 1px",wordBreak:"break-all"}},path),items.slice(0,100).map(it=>h(Btn,{key:it.path,onClick:()=>it.type==="dir"?browse(it.path):selectFile(it.path)},it.type==="dir"?`📁 ${it.name} ›`:`📄 ${it.name} • ${it.size_human}`)))),
-      h(Card,null,h(SectionTitle,{icon:"📥",title:"Received Files",sub:"Files received from phone / PC"}),(!status.received||!status.received.length)?h("div",{style:{opacity:.55,fontSize:12}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(28,54,87,.72)",borderRadius:11,padding:10,margin:"7px 0"}},h("div",{style:{fontWeight:700}},f.name),h("div",{style:{fontSize:10,opacity:.6,wordBreak:"break-all"}},f.size_human+" • "+f.path),h("button",{onClick:()=>deleteReceived(f.path),style:{marginTop:7,padding:"6px 9px",borderRadius:8,border:"1px solid rgba(255,110,110,.38)",background:deleteArmed===f.path?"rgba(255,70,70,.28)":"rgba(255,70,70,.10)",color:"#ffd0d0"}},deleteArmed===f.path?"Tap again to delete":"Delete")))),
-      h(Card,null,h(SectionTitle,{icon:"↔️",title:"Live Transfers",sub:"Speed and progress"}),(!status.transfers||!status.transfers.length)?h("div",{style:{opacity:.55,fontSize:12}},"No active transfers"):status.transfers.map(t=>h("div",{key:t.id,style:{padding:"7px 0"}},h("div",{style:{fontWeight:650}},`${t.direction==="upload"?"Phone/PC → Deck":"Deck → Phone/PC"}: ${t.name}`),h("div",{style:{fontSize:11,opacity:.65}},`${Number(t.percent||0).toFixed(1)}% • ${fmt(t.speed)}/s${t.eta?` • ETA ${Math.ceil(t.eta)}s`:""}`),h(Bar,{value:t.percent})))),
-      h(Card,{style:{border:"1px solid rgba(120,180,255,.22)"}},h(SectionTitle,{icon:"🔔",title:"Notifications",sub:"Received files, failed transfers and completed sends"}),h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:12,opacity:.72}},notifyOn?"On • multi-file receives are grouped":"Off"),h("button",{onClick:toggleNotifications,style:{padding:"8px 11px",borderRadius:9,border:"1px solid rgba(102,192,244,.35)",background:notifyOn?"rgba(102,192,244,.18)":"rgba(255,255,255,.06)",color:"white",fontWeight:700}},notifyOn?"Turn off":"Turn on"))),
-      h(Card,{style:{border:"1px solid rgba(255,190,75,.22)"}},h(SectionTitle,{icon:"☕",title:"Support DeckyShare",sub:"Free & open-source community project"}),h("button",{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.38)",background:"rgba(255,183,65,.13)",color:"#ffe0a3",fontWeight:750}},"☕ Buy me a coffee")),
-      err&&h("div",{style:{color:"#ffb3b3",marginTop:8}},err)
+    return h("div",{style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h("div",{style:{fontSize:29}},"◉"),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"v1.1-dev")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
+
+      h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
+        h(SectionTitle,{icon:"📡",title:"Connect phone / PC",sub:"Scan the QR code or open the local address"}),
+        h("div",{style:{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:999,background:status.server_self_test?"rgba(56,232,121,.10)":"rgba(255,112,112,.10)",color:status.server_self_test?"#8ef6aa":"#ffb3b3",fontSize:11,fontWeight:700,marginBottom:10}},status.server_self_test?"● Ready to connect":"● Server unavailable"),
+        h("div",{style:{display:"flex",gap:10,alignItems:"stretch"}},
+          h("div",{style:{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:7}},
+            h("div",{style:{padding:"10px 9px",borderRadius:10,background:"rgba(43,112,196,.20)",border:"1px solid rgba(79,164,255,.26)",fontSize:10,fontWeight:750,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:"#79cbff"}},displayUrl),
+            h(MiniButton,{onClick:copyAddress},copied?"✓ Address copied":"Copy address")
+          ),
+          displayQr&&h("div",{style:{width:91,textAlign:"center"}},h("img",{src:displayQr,style:{width:80,height:80,background:"white",padding:4,borderRadius:9}}),h("div",{style:{fontSize:9,opacity:.55,marginTop:2}},"Scan QR"))
+        ),
+        conns.length>1&&h("div",{style:{marginTop:9}},h("div",{style:{fontSize:10,opacity:.52,marginBottom:4}},"Network"),conns.map((c,i)=>h("button",{key:c.ip,onClick:()=>{setConnIndex(i);setCopied(false);},style:{padding:"5px 7px",margin:"2px 3px 2px 0",borderRadius:7,border:i===connIndex?"1px solid #66c0f4":"1px solid rgba(255,255,255,.10)",background:i===connIndex?"rgba(102,192,244,.16)":"transparent",color:"white",fontSize:10}},c.interface)))
+      ),
+
+      h(Card,null,
+        h(SectionTitle,{icon:"📁",title:"Browse Files",sub:status.selected?"File ready to download":"Choose a location, then select a file"}),
+        !status.selected&&!path&&h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}},roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{minHeight:62,padding:11,borderRadius:12,border:"1px solid rgba(104,170,255,.22)",background:"linear-gradient(145deg,rgba(35,77,128,.66),rgba(23,50,84,.66))",color:"white",fontWeight:700,textAlign:"left",fontSize:12}},`${r.name.startsWith("Drive:")?"💾":"📂"} ${r.name}  ›`))),
+        status.selected?h("div",{style:{padding:10,borderRadius:11,background:"rgba(73,151,220,.10)",border:"1px solid rgba(100,175,240,.16)"}},h("div",{style:{fontWeight:750,wordBreak:"break-word"}},"✓ "+status.selected.name),h("div",{style:{fontSize:11,opacity:.6,marginTop:2}},status.selected.size_human),h(Btn,{onClick:clearSelection},"Choose another file")):path&&h("div",null,h("div",{style:{display:"flex",gap:6}},h(MiniButton,{onClick:()=>{setPath(null);setParent(null);setItems([]);}},"← Locations"),parent&&h(MiniButton,{onClick:()=>browse(parent)},"↑ Up")),h("div",{style:{fontSize:10,opacity:.50,margin:"8px 1px",wordBreak:"break-all"}},path),items.slice(0,100).map(it=>h(Btn,{key:it.path,onClick:()=>it.type==="dir"?browse(it.path):selectFile(it.path)},it.type==="dir"?`📁 ${it.name}  ›`:`📄 ${it.name}  •  ${it.size_human}`)))
+      ),
+
+      h(Card,null,
+        h(SectionTitle,{icon:"📥",title:"Received Files",sub:"Recent files sent from phone / PC"}),
+        (!status.received||!status.received.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(28,54,87,.62)",border:"1px solid rgba(120,180,255,.12)",borderRadius:12,padding:10,margin:"7px 0"}},
+          h("div",{style:{display:"flex",gap:9,alignItems:"center"}},h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(120,77,255,.16)",fontSize:19}},"📦"),h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:740,wordBreak:"break-word"}},f.name),h("div",{style:{fontSize:10,opacity:.54,marginTop:2}},f.size_human))),
+          h("div",{style:{display:"flex",gap:6,marginTop:8}},h(MiniButton,{onClick:()=>browse(dirname(f.path))},"Show folder"),h(MiniButton,{onClick:()=>deleteReceived(f.path),tone:"danger"},deleteArmed===f.path?"Tap again":"Delete"))
+        ))
+      ),
+
+      h(Card,null,
+        h(SectionTitle,{icon:"↔️",title:"Live Transfers",sub:"Progress, speed and ETA"}),
+        (!status.transfers||!status.transfers.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No active transfers"):status.transfers.map(t=>h("div",{key:t.id,style:{padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.05)"}},h("div",{style:{fontWeight:680,wordBreak:"break-word"}},`${t.direction==="upload"?"Phone/PC → Deck":"Deck → Phone/PC"}  •  ${t.name}`),h("div",{style:{fontSize:11,opacity:.62,marginTop:2}},`${Number(t.percent||0).toFixed(1)}% • ${fmt(t.speed)}/s${t.eta?` • ETA ${Math.ceil(t.eta)}s`:""}`),h(Bar,{value:t.percent})))
+      ),
+
+      h(Card,{style:{border:"1px solid rgba(120,180,255,.18)"}},h(SectionTitle,{icon:"🔔",title:"Notifications",sub:"Received files, failed transfers and completed sends"}),h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
+      h(Card,{style:{border:"1px solid rgba(255,190,75,.18)"}},h(SectionTitle,{icon:"☕",title:"Support DeckyShare",sub:"Free & open-source community project"}),h("button",{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"☕ Buy me a coffee")),
+      err&&h("div",{style:{color:"#ffb3b3",marginTop:8,fontSize:11,wordBreak:"break-word"}},err)
     );
   };
 }
