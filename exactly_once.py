@@ -1,3 +1,4 @@
+import errno
 import json
 import os
 import threading
@@ -29,6 +30,33 @@ def _drain(handler, length):
         if not chunk:
             break
         remain -= len(chunk)
+
+
+def _rollback_part(part, offset):
+    try:
+        if part.exists():
+            with part.open("r+b") as handle:
+                handle.truncate(max(0, int(offset)))
+        return True
+    except OSError:
+        return False
+
+
+def _storage_error(error):
+    """Map filesystem failures to stable HTTP/JSON responses."""
+    if isinstance(error, OSError) and error.errno in (errno.ENOSPC, getattr(errno, "EDQUOT", -1)):
+        return 507, "storage_full", "Not enough free storage on Steam Deck"
+    return 500, "write_failed", "Could not save upload on Steam Deck"
+
+
+def _send_storage_error(handler, error, received):
+    status, code, message = _storage_error(error)
+    return handler.send_json({
+        "error": message,
+        "code": code,
+        "received": max(0, int(received or 0)),
+        "retryable": True,
+    }, status)
 
 
 def _clean_state(core):
@@ -139,7 +167,18 @@ def _install_put(core):
                         chunk = self.rfile.read(min(1024 * 1024, remain))
                         if not chunk:
                             break
-                        f.write(chunk)
+                        try:
+                            f.write(chunk)
+                        except OSError as e:
+                            _rollback_part(part, chunk_start)
+                            current = chunk_start
+                            core.STATE.update_transfer(tid, current)
+                            with core.STATE.lock:
+                                active = core.STATE.upload_sessions.get(upload_id)
+                                if active:
+                                    active["updated"] = time.time()
+                            _drain(self, remain - len(chunk))
+                            return _send_storage_error(self, e, current)
                         crc = core.crc32_update(crc, chunk)
                         remain -= len(chunk)
                         current += len(chunk)
@@ -160,11 +199,19 @@ def _install_put(core):
                 saved_target = target
                 if complete:
                     saved_target = core.unique_destination_path(target)
-                    if total == 0:
-                        part.unlink(missing_ok=True)
-                        saved_target.touch(exist_ok=False)
-                    else:
-                        os.replace(part, saved_target)
+                    try:
+                        if total == 0:
+                            part.unlink(missing_ok=True)
+                            saved_target.touch(exist_ok=False)
+                        else:
+                            os.replace(part, saved_target)
+                    except OSError as e:
+                        core.STATE.update_transfer(tid, current)
+                        with core.STATE.lock:
+                            active = core.STATE.upload_sessions.get(upload_id)
+                            if active:
+                                active["updated"] = time.time()
+                        return _send_storage_error(self, e, current)
                     record = {
                         "original_name": name,
                         "name": saved_target.name,
@@ -190,6 +237,14 @@ def _install_put(core):
                     "verified": bool(expected_crc),
                     "upload_id": upload_id,
                 })
+            except OSError as e:
+                _rollback_part(part, chunk_start)
+                core.STATE.update_transfer(tid, chunk_start)
+                with core.STATE.lock:
+                    active = core.STATE.upload_sessions.get(upload_id)
+                    if active:
+                        active["updated"] = time.time()
+                return _send_storage_error(self, e, chunk_start)
             except Exception:
                 core.STATE.update_transfer(tid, status="failed")
                 raise
@@ -232,7 +287,8 @@ def _install_post(core):
             try:
                 part.unlink(missing_ok=True)
             except OSError as e:
-                return self.send_json({"error": str(e)}, 400)
+                status, code, message = _storage_error(e)
+                return self.send_json({"error": message, "code": code}, status)
 
             tid = session.get("tid") if session else None
             with core.STATE.lock:
