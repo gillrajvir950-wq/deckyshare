@@ -76,7 +76,7 @@ function makePanel(){
   let backendAPI=null;
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
-    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false);
+    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null);
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
 
@@ -118,18 +118,67 @@ function makePanel(){
     async function browse(p){try{const j=await call("browse",{path:p});setPath(j.path);setParent(j.parent);setItems(j.items||[]);setErr("");}catch(e){setErr("Browse: "+String(e&&e.message||e));}}
     async function selectFile(p){try{await call("select_file",{path:p});await refreshStatus();}catch(e){setErr("Selection: "+String(e&&e.message||e));}}
     async function clearSelection(){try{await call("clear_selection");await refreshStatus();}catch(e){setErr("Clear selection: "+String(e&&e.message||e));}}
+    async function showReceivedFolder(p){
+      try{
+        await call("clear_selection");
+        setStatus(s=>({...s,selected:null}));
+        await browse(dirname(p));
+      }catch(e){setErr("Show folder: "+String(e&&e.message||e));}
+    }
+    async function copyText(text,label="Path"){
+      if(!text)return false;
+      const ok=await copyToClipboard(text);
+      if(ok){
+        setCopiedPath(text);
+        setErr("");
+        setTimeout(()=>setCopiedPath(p=>p===text?null:p),1600);
+        return true;
+      }
+      setCopiedPath(null);
+      setErr(`Copy ${label.toLowerCase()} failed — clipboard is blocked in this Decky view`);
+      return false;
+    }
     async function deleteReceived(p){
       if(deleteArmed!==p){setDeleteArmed(p);return;}
       try{setDeleteArmed(null);const r=await call("delete_received",{path:p});setStatus(s=>({...s,received:r&&r.received?r.received:(s.received||[]).filter(x=>x.path!==p)}));}
       catch(e){setDeleteArmed(null);setErr("Delete: "+String(e&&e.message||e));}
     }
+    async function copyToClipboard(text){
+      if(!text)return false;
+      let ok=false;
+      try{
+        if(navigator.clipboard&&typeof navigator.clipboard.writeText==="function"){
+          try{await navigator.clipboard.writeText(text);ok=true;}catch(e){}
+        }
+        if(!ok&&typeof document!=="undefined"){
+          const ta=document.createElement("textarea");
+          ta.value=text;
+          ta.setAttribute("readonly","");
+          ta.style.position="fixed";
+          ta.style.left="-9999px";
+          ta.style.top="0";
+          ta.style.opacity="0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          if(typeof ta.setSelectionRange==="function")ta.setSelectionRange(0,text.length);
+          try{ok=!!document.execCommand("copy");}catch(e){ok=false;}
+          document.body.removeChild(ta);
+        }
+      }catch(e){ok=false;}
+      return ok;
+    }
     async function copyAddress(){
       if(!displayUrl)return;
-      try{
-        if(navigator.clipboard&&navigator.clipboard.writeText)await navigator.clipboard.writeText(displayUrl);
-        else throw new Error("Clipboard API unavailable");
-        setCopied(true);setTimeout(()=>setCopied(false),1400);
-      }catch(e){setErr("Copy address failed");}
+      const ok=await copyToClipboard(displayUrl);
+      if(ok){
+        setCopied(true);
+        setErr("");
+        setTimeout(()=>setCopied(false),1600);
+      }else{
+        setCopied(false);
+        setErr("Copy address failed — clipboard is blocked in this Decky view");
+      }
     }
     function toggleNotifications(){const next=!notifyOn;setNotifyOn(next);saveNotificationsEnabled(next);if(next)notifySeen.clear();else{receivedBatch=[];if(receivedBatchTimer){clearTimeout(receivedBatchTimer);receivedBatchTimer=null;}}}
 
@@ -170,7 +219,8 @@ function makePanel(){
         h(SectionTitle,{icon:"📥",title:"Received Files",sub:"Recent files sent from phone / PC"}),
         (!status.received||!status.received.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(28,54,87,.62)",border:"1px solid rgba(120,180,255,.12)",borderRadius:12,padding:10,margin:"7px 0"}},
           h("div",{style:{display:"flex",gap:9,alignItems:"center"}},h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(120,77,255,.16)",fontSize:19}},"📦"),h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:740,wordBreak:"break-word"}},f.name),h("div",{style:{fontSize:10,opacity:.54,marginTop:2}},f.size_human))),
-          h("div",{style:{display:"flex",gap:6,marginTop:8}},h(MiniButton,{onClick:()=>browse(dirname(f.path))},"Show folder"),h(MiniButton,{onClick:()=>deleteReceived(f.path),tone:"danger"},deleteArmed===f.path?"Tap again":"Delete"))
+          h("div",{style:{fontSize:9,opacity:.42,marginTop:6,wordBreak:"break-all"}},f.path),
+          h("div",{style:{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}},h(MiniButton,{onClick:()=>showReceivedFolder(f.path)},"Show folder"),h(MiniButton,{onClick:()=>copyText(f.path,"Path")},copiedPath===f.path?"✓ Copied":"Copy path"),h(MiniButton,{onClick:()=>deleteReceived(f.path),tone:"danger"},deleteArmed===f.path?"Tap again":"Delete"))
         ))
       ),
 
