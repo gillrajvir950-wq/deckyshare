@@ -1,5 +1,9 @@
+import re
 import zlib
 from pathlib import Path
+
+
+_UPLOAD_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
 
 def crc32_update(value: int, data: bytes) -> int:
@@ -29,6 +33,18 @@ def remove_partial(part_path) -> bool:
         return False
     path.unlink()
     return True
+
+
+def safe_upload_id(value) -> str:
+    upload_id = str(value or "").strip()
+    if not _UPLOAD_ID_RE.fullmatch(upload_id):
+        raise ValueError("Invalid upload ID")
+    return upload_id
+
+
+def upload_part_path(receive_dir, upload_id: str) -> Path:
+    clean_id = safe_upload_id(upload_id)
+    return Path(receive_dir) / f".deckyshare-{clean_id}.part"
 
 
 def parse_nonnegative_int(value, field: str) -> int:
