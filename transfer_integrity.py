@@ -29,3 +29,36 @@ def remove_partial(part_path) -> bool:
         return False
     path.unlink()
     return True
+
+
+def parse_nonnegative_int(value, field: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid {field}")
+    if parsed < 0:
+        raise ValueError(f"Invalid {field}")
+    return parsed
+
+
+def validate_upload_window(offset: int, total: int, length: int, current: int) -> None:
+    offset = parse_nonnegative_int(offset, "offset")
+    total = parse_nonnegative_int(total, "total")
+    length = parse_nonnegative_int(length, "length")
+    current = parse_nonnegative_int(current, "current")
+
+    if offset != current:
+        raise ValueError("Resume offset mismatch")
+    if current > total:
+        raise ValueError("Partial file exceeds declared total")
+    if length > total - current:
+        raise ValueError("Chunk exceeds declared total")
+    if total == 0 and (offset != 0 or length != 0 or current != 0):
+        raise ValueError("Invalid zero-byte upload")
+
+
+def create_empty_file(path) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.touch(exist_ok=False)
+    return target
