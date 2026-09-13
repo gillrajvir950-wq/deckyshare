@@ -45,6 +45,21 @@ def human_size(n):
         n /= 1024
 
 
+def unique_destination_path(path):
+    """Return a non-existing sibling path without overwriting an existing file."""
+    path = Path(path)
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    counter = 1
+    while True:
+        candidate = path.with_name(f"{stem} ({counter}){suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def network_addresses():
     """Return useful IPv4 LAN addresses, preferring Wi-Fi/Ethernet over VPN/virtual links."""
     found = []
@@ -290,7 +305,7 @@ def make_qr_svg(text):
                     rects.append(f'<rect x="{x}" y="{y}" width="1" height="1"/>')
         svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" '
                f'shape-rendering="crispEdges"><rect width="100%" height="100%" fill="white"/>'
-               f'<g fill="black">{"".join(rects)}</g></svg>')
+               f'<g fill="black'>{"".join(rects)}</g></svg>')
         return svg.encode("utf-8")
     except Exception as e:
         decky.logger.warning(f"DeckShare QR generation failed: {e}")
@@ -460,9 +475,18 @@ class Handler(BaseHTTPRequestHandler):
                     chunk=self.rfile.read(min(1024*1024,remain))
                     if not chunk: break
                     f.write(chunk); remain-=len(chunk); current+=len(chunk); STATE.update_transfer(tid,current)
+            saved_target = target
             if total and current>=total:
-                os.replace(part,target); STATE.update_transfer(tid,current,"complete"); item = STATE.record_received(target); notify_file_received(item)
-            return self.send_json({"received":current,"complete":bool(total and current>=total)})
+                saved_target = unique_destination_path(target)
+                os.replace(part,saved_target)
+                STATE.update_transfer(tid,current,"complete")
+                item = STATE.record_received(saved_target)
+                notify_file_received(item)
+            return self.send_json({
+                "received": current,
+                "complete": bool(total and current>=total),
+                "name": saved_target.name if total and current>=total else name,
+            })
         except Exception:
             STATE.update_transfer(tid,status="failed"); raise
 
