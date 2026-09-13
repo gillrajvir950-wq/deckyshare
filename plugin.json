@@ -2,6 +2,7 @@
   "name": "DeckyShare",
   "author": "Gillrv",
   "flags": [],
+  "api_version": 1,
   "publish": {
     "tags": [
       "files",
