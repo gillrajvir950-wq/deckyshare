@@ -5,10 +5,12 @@ import json
 import os
 import re
 import shutil
+import ssl
 import stat
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -23,6 +25,89 @@ MAX_ASSET_BYTES = 50 * 1024 * 1024
 MAX_UNPACKED_BYTES = 200 * 1024 * 1024
 MAX_ZIP_ENTRIES = 2000
 CHECK_CACHE_SECONDS = 300
+
+# Decky Loader runs plugin backends from a frozen Python environment.  In that
+# environment OpenSSL's compiled-in CA path can point inside Decky's temporary
+# extraction directory instead of SteamOS' real trust store.  Prefer explicit
+# system CA bundles, while keeping full certificate and hostname verification.
+_CA_BUNDLE_CANDIDATES = (
+    "/etc/ssl/certs/ca-certificates.crt",      # SteamOS / Arch / Debian
+    "/etc/ssl/cert.pem",                      # OpenSSL / Alpine-style
+    "/etc/pki/tls/certs/ca-bundle.crt",       # Fedora / RHEL-style
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+    "/etc/ssl/ca-bundle.pem",
+)
+
+
+def _candidate_ca_bundles():
+    seen = set()
+
+    # Prefer the host OS trust store. Decky's frozen runtime can set Python's
+    # defaults to a temporary extraction directory that disappears or is
+    # incomplete after startup.
+    for value in _CA_BUNDLE_CANDIDATES:
+        if value not in seen:
+            seen.add(value)
+            yield value
+
+    # Respect explicit overrides only after the real SteamOS trust store.
+    for env_name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        value = str(os.environ.get(env_name) or "").strip()
+        if value and value not in seen:
+            seen.add(value)
+            yield value
+
+    # Keep Python/OpenSSL's own reported cafile as a late fallback.  In Decky's
+    # frozen runtime it may be stale, which is why the SteamOS paths come first.
+    try:
+        default_cafile = ssl.get_default_verify_paths().cafile
+        if default_cafile and default_cafile not in seen:
+            seen.add(default_cafile)
+            yield default_cafile
+    except Exception:
+        pass
+
+
+def _ssl_context():
+    errors = []
+    for value in _candidate_ca_bundles():
+        try:
+            path = Path(value)
+            if path.is_file():
+                return ssl.create_default_context(cafile=str(path))
+        except Exception as exc:
+            errors.append(f"{value}: {exc}")
+
+    # Some distributions expose hashed certificates in a directory instead of
+    # one bundle file.
+    try:
+        ca_dir = Path("/etc/ssl/certs")
+        if ca_dir.is_dir():
+            return ssl.create_default_context(capath=str(ca_dir))
+    except Exception as exc:
+        errors.append(f"/etc/ssl/certs: {exc}")
+
+    # certifi is optional.  Use it only if Decky's Python environment happens to
+    # provide it; DeckyShare does not depend on it.
+    try:
+        import certifi  # type: ignore
+
+        cafile = str(certifi.where() or "")
+        if cafile and Path(cafile).is_file():
+            return ssl.create_default_context(cafile=cafile)
+    except Exception as exc:
+        errors.append(f"certifi: {exc}")
+
+    # Never disable TLS verification.  A normal default context is preferable
+    # to an insecure updater even if the host has a broken trust configuration.
+    try:
+        return ssl.create_default_context()
+    except Exception as exc:
+        detail = "; ".join(errors[-3:])
+        raise UpdateError(
+            "Could not initialize a verified TLS context"
+            + (f" ({detail})" if detail else "")
+        ) from exc
 
 
 class UpdateError(RuntimeError):
@@ -64,6 +149,7 @@ def parse_version(value: str):
 
 
 def compare_versions(left: str, right: str) -> int:
+    """SemVer-style comparison. Returns -1, 0, or 1."""
     lc, lp = parse_version(left)
     rc, rp = parse_version(right)
     if lc != rc:
@@ -165,6 +251,20 @@ def _choose_asset(release: dict) -> dict:
     }
 
 
+def _urlopen_verified(req, timeout: float):
+    try:
+        return urllib.request.urlopen(req, timeout=timeout, context=_ssl_context())
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, ssl.SSLCertVerificationError):
+            raise UpdateError(
+                "Secure GitHub connection could not verify its certificate. "
+                "DeckyShare tried the SteamOS system CA trust store; check the "
+                "Deck date/time and SteamOS CA certificates."
+            ) from exc
+        raise
+
+
 def _http_json(url: str, timeout: float = 8.0):
     req = urllib.request.Request(
         url,
@@ -174,7 +274,7 @@ def _http_json(url: str, timeout: float = 8.0):
             "User-Agent": USER_AGENT,
         },
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    with _urlopen_verified(req, timeout) as response:
         if int(getattr(response, "status", 200)) != 200:
             raise UpdateError(f"GitHub returned HTTP {response.status}")
         return json.loads(response.read().decode("utf-8"))
@@ -183,7 +283,7 @@ def _http_json(url: str, timeout: float = 8.0):
 def _download(url: str, dest: Path, expected_size: int, timeout: float = 20.0):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     total = 0
-    with urllib.request.urlopen(req, timeout=timeout) as response, dest.open("wb") as out:
+    with _urlopen_verified(req, timeout) as response, dest.open("wb") as out:
         while True:
             chunk = response.read(1024 * 1024)
             if not chunk:
@@ -385,145 +485,145 @@ class UpdateManager:
 
     def _prepare_backup(self, current_version: str) -> Path:
         self.backups_dir.mkdir(parents=True, exist_ok=True)
-        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
-        backup = self.backups_dir / f"{stamp}-{current_version}" / "DeckyShare"
-        backup.parent.mkdir(parents=True, exist_ok=False)
-        shutil.copytree(self.plugin_dir, backup, symlinks=False)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        backup = self.backups_dir / f"DeckyShare-{current_version}-{stamp}-{uuid.uuid4().hex[:6]}"
+        shutil.copytree(self.plugin_dir, backup, symlinks=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         return backup
 
-    def _prune_backups(self, keep: int = 2) -> None:
-        try:
-            dirs = sorted(
-                [p for p in self.backups_dir.iterdir() if p.is_dir()],
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-            for old in dirs[keep:]:
-                shutil.rmtree(old, ignore_errors=True)
-        except Exception:
-            pass
+    def _extract_archive(self, archive: Path, release_version: str, stage_parent: Path) -> Path:
+        validate_update_zip(archive, release_version)
+        stage_parent.mkdir(parents=True, exist_ok=True)
+        extract_dir = Path(tempfile.mkdtemp(prefix="extract-", dir=str(stage_parent)))
+        with zipfile.ZipFile(archive, "r") as zf:
+            zf.extractall(extract_dir)
+        staged_plugin = extract_dir / "DeckyShare"
+        _validate_extracted_plugin(staged_plugin, release_version)
+        return staged_plugin
 
-    def _swap_in(self, staged_root: Path, release_version: str, backup: Path) -> None:
+    def _atomic_swap(self, staged_plugin: Path, release_version: str) -> dict:
+        current_version = self.current_version
         parent = self.plugin_dir.parent
-        old_live = parent / f".DeckyShare-old-{uuid.uuid4().hex}"
+        backup = self._prepare_backup(current_version)
+        old_slot = parent / f".DeckyShare-old-{uuid.uuid4().hex}"
         swapped_old = False
         try:
-            os.replace(self.plugin_dir, old_live)
+            os.replace(self.plugin_dir, old_slot)
             swapped_old = True
-            os.replace(staged_root, self.plugin_dir)
-        except Exception as exc:
-            if swapped_old and old_live.exists() and not self.plugin_dir.exists():
-                try:
-                    os.replace(old_live, self.plugin_dir)
-                except Exception as rollback_exc:
-                    raise UpdateError(
-                        f"Update swap failed and automatic rollback also failed: {rollback_exc}"
-                    ) from exc
-            raise UpdateError(f"Could not replace the DeckyShare plugin directory: {exc}") from exc
-        finally:
-            if old_live.exists() and self.plugin_dir.exists():
-                shutil.rmtree(old_live, ignore_errors=True)
-
-        state = {
-            "last_installed": release_version,
-            "previous_version": read_package_version(backup),
-            "backup_path": str(backup),
-            "installed_at": time.time(),
-        }
-        self._write_state(state)
-        self._cached_check = None
-        self._cached_at = 0.0
-        self._prune_backups()
-
-    def install_archive(self, archive: Path, release_version: str, expected_sha256: str) -> dict:
-        archive = Path(archive)
-        actual = _sha256_file(archive)
-        if actual.lower() != str(expected_sha256).lower():
-            raise UpdateError("SHA-256 verification failed; update was not installed")
-        validate_update_zip(archive, release_version)
-
-        parent = self.plugin_dir.parent
-        stage_dir = Path(tempfile.mkdtemp(prefix=".deckyshare-update-stage-", dir=str(parent)))
-        try:
-            with zipfile.ZipFile(archive, "r") as zf:
-                zf.extractall(stage_dir)
-            staged_root = stage_dir / "DeckyShare"
-            _validate_extracted_plugin(staged_root, release_version)
-            current = self.current_version
-            if compare_versions(release_version, current) <= 0:
-                raise UpdateError("Refusing to install a non-newer DeckyShare version")
-            backup = self._prepare_backup(current)
-            self._swap_in(staged_root, release_version, backup)
+            try:
+                os.replace(staged_plugin, self.plugin_dir)
+            except Exception:
+                os.replace(old_slot, self.plugin_dir)
+                swapped_old = False
+                raise
+            shutil.rmtree(old_slot, ignore_errors=True)
+            swapped_old = False
+            self._write_state(
+                {
+                    "previous_version": current_version,
+                    "backup_path": str(backup),
+                    "last_installed": release_version,
+                    "installed_at": time.time(),
+                }
+            )
+            self._cached_check = None
             return {
                 "ok": True,
                 "installed": release_version,
-                "previous": current,
-                "verified_sha256": actual,
-                "reload_required": True,
-                "message": "Update installed safely. Reload DeckyShare from Decky settings to finish.",
+                "previous": current_version,
+                "rollback_available": True,
+                "message": "Update installed. Reload DeckyShare from Decky settings to start the new version.",
             }
-        finally:
-            shutil.rmtree(stage_dir, ignore_errors=True)
+        except Exception:
+            if swapped_old and old_slot.exists() and not self.plugin_dir.exists():
+                try:
+                    os.replace(old_slot, self.plugin_dir)
+                except Exception:
+                    pass
+            raise
+
+    def install_archive(self, archive: Path, release_version: str, expected_sha256: str) -> dict:
+        """Install a local ZIP after the same validation used for downloaded releases."""
+        with self._lock:
+            archive = Path(archive)
+            expected = str(expected_sha256 or "").lower()
+            if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+                raise UpdateError("Expected SHA-256 is invalid")
+            actual = _sha256_file(archive)
+            if actual != expected:
+                raise UpdateError("Update SHA-256 verification failed")
+            current = self.current_version
+            if compare_versions(release_version, current) <= 0:
+                raise UpdateError(f"Refusing to install non-newer version {release_version} over {current}")
+            stage_parent = self.data_dir / "staging"
+            staged = self._extract_archive(archive, release_version, stage_parent)
+            try:
+                return self._atomic_swap(staged, release_version)
+            finally:
+                shutil.rmtree(staged.parent, ignore_errors=True)
 
     def install_latest(self, expected_tag: str | None = None, include_prerelease: bool = False) -> dict:
         with self._lock:
-            check = self.check(include_prerelease=include_prerelease, force=True)
-            if not check.get("available"):
-                raise UpdateError("No newer DeckyShare release is available")
-            if expected_tag and str(expected_tag) != str(check.get("latest_tag")):
-                raise UpdateError("Available release changed; check for updates again")
-
             release = self._fetch_release(include_prerelease=include_prerelease)
-            if release["tag"] != check["latest_tag"]:
-                raise UpdateError("Available release changed during update; nothing was installed")
-            asset = release["asset"]
+            if expected_tag and str(expected_tag) != release["tag"]:
+                raise UpdateError("Release changed since the update check. Check for updates again.")
+            current = self.current_version
+            if compare_versions(release["version"], current) <= 0:
+                raise UpdateError("No newer DeckyShare release is available")
 
-            with tempfile.TemporaryDirectory(prefix="deckyshare-download-") as td:
-                archive = Path(td) / asset["name"]
-                _download(asset["url"], archive, int(asset["size"]))
-                return self.install_archive(archive, release["version"], asset["sha256"])
+            asset = release["asset"]
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            download_dir = Path(tempfile.mkdtemp(prefix="download-", dir=str(self.data_dir)))
+            archive = download_dir / asset["name"]
+            try:
+                _download(asset["url"], archive, asset["size"])
+                actual = _sha256_file(archive)
+                if actual != asset["sha256"]:
+                    raise UpdateError("Downloaded update failed SHA-256 verification")
+                stage_parent = self.data_dir / "staging"
+                staged = self._extract_archive(archive, release["version"], stage_parent)
+                try:
+                    return self._atomic_swap(staged, release["version"])
+                finally:
+                    shutil.rmtree(staged.parent, ignore_errors=True)
+            finally:
+                shutil.rmtree(download_dir, ignore_errors=True)
 
     def rollback(self) -> dict:
         with self._lock:
             state = self._read_state()
             backup = Path(state.get("backup_path") or "") if state.get("backup_path") else None
-            if not backup or not backup.is_dir():
-                raise UpdateError("No DeckyShare updater backup is available")
-            previous = read_package_version(backup)
-            current = self.current_version
+            previous = str(state.get("previous_version") or "").strip()
+            if not backup or not backup.is_dir() or not previous:
+                raise UpdateError("No DeckyShare rollback backup is available")
+            _validate_extracted_plugin(backup, previous)
 
             parent = self.plugin_dir.parent
-            stage_dir = Path(tempfile.mkdtemp(prefix=".deckyshare-rollback-stage-", dir=str(parent)))
+            failed_slot = parent / f".DeckyShare-rollback-{uuid.uuid4().hex}"
+            moved_current = False
             try:
-                staged_root = stage_dir / "DeckyShare"
-                shutil.copytree(backup, staged_root)
-                _validate_extracted_plugin(staged_root, previous)
-                old_live = parent / f".DeckyShare-rollback-old-{uuid.uuid4().hex}"
-                swapped = False
-                try:
-                    os.replace(self.plugin_dir, old_live)
-                    swapped = True
-                    os.replace(staged_root, self.plugin_dir)
-                except Exception as exc:
-                    if swapped and old_live.exists() and not self.plugin_dir.exists():
-                        os.replace(old_live, self.plugin_dir)
-                    raise UpdateError(f"Rollback failed: {exc}") from exc
-                finally:
-                    if old_live.exists() and self.plugin_dir.exists():
-                        shutil.rmtree(old_live, ignore_errors=True)
-
-                self._write_state({
-                    "last_installed": previous,
-                    "rolled_back_from": current,
-                    "installed_at": time.time(),
-                })
+                os.replace(self.plugin_dir, failed_slot)
+                moved_current = True
+                rollback_stage = Path(tempfile.mkdtemp(prefix="rollback-", dir=str(parent))) / "DeckyShare"
+                shutil.copytree(backup, rollback_stage, symlinks=True)
+                os.replace(rollback_stage, self.plugin_dir)
+                shutil.rmtree(failed_slot, ignore_errors=True)
+                moved_current = False
+                state["backup_path"] = None
+                state["previous_version"] = None
+                state["last_installed"] = previous
+                state["installed_at"] = time.time()
+                self._write_state(state)
                 self._cached_check = None
                 return {
                     "ok": True,
                     "installed": previous,
-                    "previous": current,
-                    "reload_required": True,
-                    "message": "Previous DeckyShare build restored. Reload DeckyShare from Decky settings.",
+                    "rollback_available": False,
+                    "message": "Rollback restored. Reload DeckyShare from Decky settings.",
                 }
-            finally:
-                shutil.rmtree(stage_dir, ignore_errors=True)
+            except Exception:
+                if moved_current and failed_slot.exists() and not self.plugin_dir.exists():
+                    try:
+                        os.replace(failed_slot, self.plugin_dir)
+                    except Exception:
+                        pass
+                raise
