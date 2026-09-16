@@ -76,7 +76,7 @@ function makePanel(){
   let backendAPI=null;
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
-    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null);
+    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false);
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
 
@@ -181,8 +181,42 @@ function makePanel(){
       }
     }
     function toggleNotifications(){const next=!notifyOn;setNotifyOn(next);saveNotificationsEnabled(next);if(next)notifySeen.clear();else{receivedBatch=[];if(receivedBatchTimer){clearTimeout(receivedBatchTimer);receivedBatchTimer=null;}}}
+    async function checkUpdate(force=false){
+      if(updateBusy)return;
+      setUpdateBusy(true);setUpdateArmed(false);setRollbackArmed(false);
+      try{
+        const r=await call("check_update",{force:!!force});
+        setUpdateInfo(r||{ok:false,error:"No update response"});
+        if(r&&!r.ok)setErr("Update: "+String(r.error||"check failed"));else if(err.startsWith("Update:"))setErr("");
+      }catch(e){const msg=String(e&&e.message||e);setUpdateInfo({ok:false,error:msg});setErr("Update: "+msg);}
+      finally{setUpdateBusy(false);}
+    }
+    async function installUpdate(){
+      if(updateBusy||!updateInfo||!updateInfo.available)return;
+      if(!updateArmed){setUpdateArmed(true);setTimeout(()=>setUpdateArmed(false),7000);return;}
+      setUpdateBusy(true);setUpdateArmed(false);
+      try{
+        const r=await call("install_update",{tag:updateInfo.latest_tag});
+        if(!r||!r.ok)throw new Error(r&&r.error||"Update installation failed");
+        setUpdateInfo(x=>({...x,...r,available:false,installed_now:true,current:r.installed,rollback_available:true,previous_version:r.previous}));
+        setErr("");toast(backendAPI,`DeckyShare ${r.installed} installed • reload required`);
+      }catch(e){const msg=String(e&&e.message||e);setErr("Update: "+msg);setUpdateInfo(x=>({...x,install_error:msg}));}
+      finally{setUpdateBusy(false);}
+    }
+    async function rollbackUpdate(){
+      if(updateBusy||!updateInfo||!updateInfo.rollback_available)return;
+      if(!rollbackArmed){setRollbackArmed(true);setTimeout(()=>setRollbackArmed(false),7000);return;}
+      setUpdateBusy(true);setRollbackArmed(false);
+      try{
+        const r=await call("rollback_update");
+        if(!r||!r.ok)throw new Error(r&&r.error||"Rollback failed");
+        setUpdateInfo(x=>({...x,...r,installed_now:true,current:r.installed,rollback_available:false}));
+        setErr("");toast(backendAPI,`Restored DeckyShare ${r.installed} • reload required`);
+      }catch(e){const msg=String(e&&e.message||e);setErr("Rollback: "+msg);}
+      finally{setUpdateBusy(false);}
+    }
 
-    useEffect(()=>{bootstrap();},[]);
+    useEffect(()=>{bootstrap();call("update_state").then(r=>{if(r&&r.ok)setUpdateInfo(r);}).catch(()=>{});},[]);
     useEffect(()=>{if(!status)return;const t=setInterval(refreshStatus,1000);return()=>clearInterval(t);},[!!status]);
 
     const conns=status&&status.addresses||[];
@@ -230,6 +264,21 @@ function makePanel(){
       ),
 
       h(Card,{style:{border:"1px solid rgba(120,180,255,.18)"}},h(SectionTitle,{icon:"🔔",title:"Notifications",sub:"Received files, failed transfers and completed sends"}),h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
+      h(Card,{style:{border:"1px solid rgba(96,211,152,.22)"}},
+        h(SectionTitle,{icon:"⬆️",title:"Updates",sub:"Verified GitHub releases • manual install only"}),
+        h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:"Installed: v1.1.0-rc.1"),
+        updateInfo&&updateInfo.installed_now&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(70,210,125,.10)",border:"1px solid rgba(80,220,140,.18)",fontSize:11,lineHeight:1.45,marginBottom:8}},`✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`),
+        updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{fontSize:10,opacity:.68,whiteSpace:"pre-wrap",maxHeight:72,overflow:"hidden",marginTop:6}},updateInfo.notes)),
+        updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.same&&h("div",{style:{fontSize:11,opacity:.68,marginBottom:8}},`✓ You're on the latest stable release (v${updateInfo.latest}).`),
+        updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.ahead&&h("div",{style:{fontSize:11,opacity:.68,marginBottom:8}},`Development build detected. Latest stable release is v${updateInfo.latest}.`),
+        updateInfo&&!updateInfo.ok&&updateInfo.error&&h("div",{style:{fontSize:11,color:"#ffb3b3",marginBottom:8,wordBreak:"break-word"}},updateInfo.error),
+        h("div",{style:{display:"flex",gap:6,flexWrap:"wrap"}},
+          h(MiniButton,{onClick:()=>checkUpdate(true)},updateBusy?"Working…":"Check for update"),
+          updateInfo&&updateInfo.available&&h(MiniButton,{onClick:installUpdate},updateBusy?"Installing…":updateArmed?`Confirm v${updateInfo.latest}`:`Install v${updateInfo.latest}`),
+          updateInfo&&updateInfo.rollback_available&&h(MiniButton,{onClick:rollbackUpdate,tone:"danger"},rollbackArmed?"Confirm rollback":"Rollback")
+        ),
+        h("div",{style:{fontSize:9,opacity:.42,lineHeight:1.35,marginTop:8}},"Updates are never installed silently. ZIP identity, size and SHA-256 are verified before an atomic swap; a rollback backup is kept.")
+      ),
       h(Card,{style:{border:"1px solid rgba(255,190,75,.18)"}},h(SectionTitle,{icon:"☕",title:"Support DeckyShare",sub:"Free & open-source community project"}),h("button",{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"☕ Buy me a coffee")),
       err&&h("div",{style:{color:"#ffb3b3",marginTop:8,fontSize:11,wordBreak:"break-word"}},err)
     );
