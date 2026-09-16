@@ -1,0 +1,238 @@
+name: Publish DeckyShare RC3 prerelease
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc3-release
+    paths:
+      - .github/workflows/rc3-prerelease.yml
+      - assets/deckyshare-icon.png
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC3 branch
+        uses: actions/checkout@v4
+
+      - name: Build RC3 with native Decky updater and custom icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf package DeckyShare-v1.1.0-rc.3.zip
+          mkdir -p package/DeckyShare
+          rsync -a ./ package/DeckyShare/             --exclude '.git'             --exclude '.github'             --exclude 'tests'             --exclude 'tools'             --exclude 'RELEASE_CHECKLIST.md'
+
+          python - <<'PY'
+          from pathlib import Path
+          import base64, json, re, textwrap
+
+          root = Path("package/DeckyShare")
+          version = "1.1.0-rc.3"
+          icon_bytes = (root / "assets" / "deckyshare-icon.png").read_bytes()
+          icon_data = "data:image/png;base64," + base64.b64encode(icon_bytes).decode("ascii")
+
+          p = root / "package.json"
+          data = json.loads(p.read_text())
+          data["version"] = version
+          p.write_text(json.dumps(data, indent=2) + "\n")
+
+          p = root / "main.py"
+          s = p.read_text()
+          s = re.sub(
+              r'_core\.Handler\.server_version = "DeckyShare/[^"]+"',
+              '_core.Handler.server_version = "DeckyShare/1.1.0-rc3"',
+              s,
+              count=1,
+          )
+          s = s.replace(
+              "return await asyncio.to_thread(updater.install_latest, expected_tag, include_prerelease)",
+              "return await asyncio.to_thread(updater.prepare_install, expected_tag, include_prerelease)",
+          )
+          s = s.replace(
+              "return await asyncio.to_thread(updater.rollback)",
+              "return await asyncio.to_thread(updater.prepare_rollback)",
+          )
+          p.write_text(s)
+
+          p = root / "updater.py"
+          s = p.read_text()
+          if "def prepare_install(" not in s:
+              marker = "    def install_latest(self, expected_tag: str | None = None, include_prerelease: bool = False) -> dict:\n"
+              method = textwrap.dedent('''
+                  def prepare_install(self, expected_tag: str | None = None, include_prerelease: bool = False) -> dict:
+                      """Return a verified Decky Loader install request without writing plugin files."""
+                      with self._lock:
+                          release = self._fetch_release(include_prerelease=include_prerelease)
+                          if expected_tag and str(expected_tag) != str(release["tag"]):
+                              raise UpdateError("Release changed since the update check. Check again.")
+                          current = self.current_version
+                          if compare_versions(release["version"], current) <= 0:
+                              raise UpdateError("No newer DeckyShare release is available")
+                          asset = release["asset"]
+                          return {
+                              "ok": True,
+                              "request_install": True,
+                              "installer": "decky-loader",
+                              "artifact": asset["url"],
+                              "name": "DeckyShare",
+                              "version": release["version"],
+                              "tag": release["tag"],
+                              "sha256": asset["sha256"],
+                              "install_type": 2,
+                              "previous": current,
+                              "message": "Decky Loader confirmation is required.",
+                          }
+
+                  def prepare_rollback(self) -> dict:
+                      raise UpdateError("Rollback is not available for this prerelease test build")
+
+              ''')
+              method = textwrap.indent(method, "    ")
+              if marker not in s:
+                  raise SystemExit("install_latest marker missing")
+              s = s.replace(marker, method + marker, 1)
+          p.write_text(s)
+
+          p = root / "rc1_hardening.py"
+          s = p.read_text().replace("v1.1.0-rc1", "v1.1.0-rc3").replace("v1.1.0-rc2", "v1.1.0-rc3")
+          p.write_text(s)
+
+          p = root / "dist" / "index.js"
+          s = p.read_text()
+
+          if "function deckyLoaderBackend()" not in s:
+              needle = textwrap.dedent('''
+                  function connectDeckyBackend(){
+                    const init=window.__DECKY_SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED_deckyLoaderAPIInit;
+                    if(!init||typeof init.connect!=="function")throw new Error("Decky loader API is not initialized");
+                    try{return init.connect(2,"DeckyShare");}catch(e){return init.connect(1,"DeckyShare");}
+                  }
+              ''').lstrip("\n")
+              repl = needle + textwrap.dedent('''
+
+                  function deckyLoaderBackend(){
+                    const loader=window.DeckyBackend;
+                    if(!loader||typeof loader.call!=="function")throw new Error("Decky Loader install API is unavailable");
+                    return loader;
+                  }
+              ''')
+              if needle not in s:
+                  raise SystemExit("connectDeckyBackend block missing")
+              s = s.replace(needle, repl, 1)
+
+          if "DECKYSHARE_ICON_DATA" not in s:
+              icon_code = textwrap.dedent(f'''
+                  const DECKYSHARE_ICON_DATA="{icon_data}";
+                  function DeckyShareIcon({{size=22}}={{}}){{
+                    return h("img",{{
+                      src:DECKYSHARE_ICON_DATA,
+                      width:size,
+                      height:size,
+                      alt:"",
+                      style:{{width:size,height:size,objectFit:"contain",display:"block"}}
+                    }});
+                  }}
+              ''')
+              s = s.replace("function connectDeckyBackend(){", icon_code + "\nfunction connectDeckyBackend(){", 1)
+
+          start = s.find("    async function installUpdate(){")
+          end = s.find("\n    async function rollbackUpdate()", start)
+          if start < 0 or end < 0:
+              raise SystemExit("installUpdate block missing")
+          install_fn = textwrap.dedent('''
+              async function installUpdate(){
+                if(updateBusy||!updateInfo||!updateInfo.available)return;
+                if(!updateArmed){setUpdateArmed(true);setTimeout(()=>setUpdateArmed(false),7000);return;}
+                setUpdateBusy(true);setUpdateArmed(false);
+                try{
+                  const r=await call("install_update",{tag:updateInfo.latest_tag});
+                  if(!r||!r.ok||!r.request_install)throw new Error(r&&r.error||"Update preparation failed");
+                  const loader=deckyLoaderBackend();
+                  await loader.call(
+                    "utilities/install_plugin",
+                    r.artifact,
+                    r.name||"DeckyShare",
+                    r.version,
+                    r.sha256,
+                    Number(r.install_type||2)
+                  );
+                  setUpdateInfo(x=>({...x,installer_prompted:true,prepared_version:r.version}));
+                  setErr("");
+                  toast(backendAPI,`Decky confirmation opened for v${r.version}`);
+                }catch(e){
+                  const msg=String(e&&e.message||e);
+                  setErr("Update: "+msg);
+                  setUpdateInfo(x=>({...x,install_error:msg}));
+                }finally{setUpdateBusy(false);}
+              }
+          ''')
+          install_fn = textwrap.indent(install_fn, "    ")
+          s = s[:start] + install_fn + s[end:]
+
+          s = s.replace('h("div",{style:{fontSize:29}},"◉")', 'h(DeckyShareIcon,{size:34})', 1)
+          s = s.replace('icon:h("div",{style:{fontSize:20}},"↔"),', 'icon:h(DeckyShareIcon,{size:22}),', 1)
+          s = re.sub(r'v1\.1\.0-rc(?:1|2)(?: bridge2(?:-iconfix)?)?', "v1.1.0-rc3", s)
+          s = s.replace(
+              "Updates are never installed silently. ZIP identity, size and SHA-256 are verified before an atomic swap; a rollback backup is kept.",
+              "Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.",
+          )
+          p.write_text(s)
+          PY
+
+          cd package
+          zip -qr ../DeckyShare-v1.1.0-rc.3.zip DeckyShare
+          cd ..
+
+      - name: Validate RC3 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+
+          p = Path("DeckyShare-v1.1.0-rc.3.zip")
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              names = set(z.namelist())
+              for required in (
+                  "DeckyShare/main.py",
+                  "DeckyShare/plugin.json",
+                  "DeckyShare/package.json",
+                  "DeckyShare/dist/index.js",
+                  "DeckyShare/updater.py",
+                  "DeckyShare/assets/deckyshare-icon.png",
+              ):
+                  assert required in names
+              package = json.loads(z.read("DeckyShare/package.json"))
+              plugin = json.loads(z.read("DeckyShare/plugin.json"))
+              main = z.read("DeckyShare/main.py").decode()
+              js = z.read("DeckyShare/dist/index.js").decode()
+              updater = z.read("DeckyShare/updater.py").decode()
+              assert package["version"] == "1.1.0-rc.3"
+              assert plugin["name"] == "DeckyShare"
+              assert "updater.prepare_install" in main
+              assert "updater.install_latest" not in main
+              assert "def prepare_install(" in updater
+              assert "utilities/install_plugin" in js
+              assert "DECKYSHARE_ICON_DATA" in js
+              assert "v1.1.0-rc3" in js
+          print("RC3 ZIP validation passed")
+          PY
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0-rc.3 >/dev/null 2>&1; then
+            echo 'v1.1.0-rc.3 already exists; leaving it unchanged.'
+            exit 0
+          fi
+          gh release create v1.1.0-rc.3 DeckyShare-v1.1.0-rc.3.zip             --prerelease             --target v1.1.0-rc3-release             --title 'DeckyShare v1.1.0-rc.3'             --notes 'RC3 adds the custom DeckyShare satellite-transfer icon and keeps updates on Decky Loader’s native installer path. Includes the verified updater TLS fix and prerelease update channel. Hardware-test prerelease; not the public stable release.'
