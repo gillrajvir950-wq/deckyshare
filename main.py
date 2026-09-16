@@ -2,15 +2,12 @@ from pathlib import Path
 import asyncio
 import sys
 
-# Decky may load main.py directly without adding the plugin directory to
-# sys.path. Add it explicitly so the split RC1 backend modules can import.
 _PLUGIN_DIR = Path(__file__).resolve().parent
 if str(_PLUGIN_DIR) not in sys.path:
     sys.path.insert(0, str(_PLUGIN_DIR))
 
 import core_main as _core
 from exactly_once_bootstrap import install as _install_reliability
-
 _install_reliability(_core)
 _core.Handler.server_version = "DeckyShare/1.1.0-rc1"
 _UPDATER = None
@@ -19,8 +16,28 @@ _UPDATER = None
 def _get_updater():
     global _UPDATER
     if _UPDATER is None:
-        from updater import UpdateManager
-        _UPDATER = UpdateManager(_PLUGIN_DIR, Path(_core.decky.DECKY_USER_HOME))
+        # Do not use ``import updater`` here. Decky Loader itself ships a
+        # decky_loader.updater module and its frozen runtime can resolve that
+        # name before this plugin's updater.py. Load our file explicitly under
+        # a unique module name so the two updater implementations can never
+        # collide.
+        import importlib.util
+
+        updater_path = _PLUGIN_DIR / "updater.py"
+        module_name = "_deckyshare_plugin_updater"
+        spec = importlib.util.spec_from_file_location(module_name, updater_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("Could not load DeckyShare updater module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(module_name, None)
+            raise
+        _UPDATER = module.UpdateManager(
+            _PLUGIN_DIR, Path(_core.decky.DECKY_USER_HOME)
+        )
     return _UPDATER
 
 
