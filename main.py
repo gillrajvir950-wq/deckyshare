@@ -10,11 +10,18 @@ if str(_PLUGIN_DIR) not in sys.path:
 
 import core_main as _core
 from exactly_once_bootstrap import install as _install_reliability
-from updater import UpdateManager, UpdateError
 
 _install_reliability(_core)
 _core.Handler.server_version = "DeckyShare/1.1.0-rc1"
-_UPDATER = UpdateManager(_PLUGIN_DIR, Path(_core.decky.DECKY_USER_HOME))
+_UPDATER = None
+
+
+def _get_updater():
+    global _UPDATER
+    if _UPDATER is None:
+        from updater import UpdateManager
+        _UPDATER = UpdateManager(_PLUGIN_DIR, Path(_core.decky.DECKY_USER_HOME))
+    return _UPDATER
 
 
 def _payload_value(payload, key, default=None):
@@ -26,7 +33,8 @@ def _payload_value(payload, key, default=None):
 class Plugin(_core.Plugin):
     async def update_state(self, *args, **kwargs):
         try:
-            return await asyncio.to_thread(_UPDATER.state)
+            updater = _get_updater()
+            return await asyncio.to_thread(updater.state)
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -34,19 +42,21 @@ class Plugin(_core.Plugin):
         include_prerelease = bool(_payload_value(payload, "include_prerelease", False))
         force = bool(_payload_value(payload, "force", False))
         try:
-            return await asyncio.to_thread(_UPDATER.check, include_prerelease, force)
-        except (UpdateError, OSError, ValueError) as exc:
-            return {"ok": False, "error": str(exc), "current": _UPDATER.current_version}
+            updater = _get_updater()
+            return await asyncio.to_thread(updater.check, include_prerelease, force)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
         except Exception as exc:
             _core.decky.logger.exception("DeckyShare update check failed")
-            return {"ok": False, "error": f"Update check failed: {exc}", "current": _UPDATER.current_version}
+            return {"ok": False, "error": f"Update check failed: {exc}"}
 
     async def install_update(self, payload=None, *args, **kwargs):
         expected_tag = _payload_value(payload, "tag")
         include_prerelease = bool(_payload_value(payload, "include_prerelease", False))
         try:
-            return await asyncio.to_thread(_UPDATER.install_latest, expected_tag, include_prerelease)
-        except (UpdateError, OSError, ValueError) as exc:
+            updater = _get_updater()
+            return await asyncio.to_thread(updater.install_latest, expected_tag, include_prerelease)
+        except (OSError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
         except Exception as exc:
             _core.decky.logger.exception("DeckyShare update installation failed")
@@ -54,8 +64,9 @@ class Plugin(_core.Plugin):
 
     async def rollback_update(self, *args, **kwargs):
         try:
-            return await asyncio.to_thread(_UPDATER.rollback)
-        except (UpdateError, OSError, ValueError) as exc:
+            updater = _get_updater()
+            return await asyncio.to_thread(updater.rollback)
+        except (OSError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
         except Exception as exc:
             _core.decky.logger.exception("DeckyShare update rollback failed")
