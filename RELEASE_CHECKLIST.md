@@ -36,6 +36,20 @@ Note: mobile operating systems may suspend a browser download when the screen tu
 - [ ] Cancelled upload cleans partial data
 - [ ] Stale partial cleanup (>24h)
 
+## Self updater
+- [x] Version comparison tests, including RC versions
+- [x] ZIP traversal rejection test
+- [x] SHA-256 mismatch leaves the live plugin untouched
+- [x] Atomic install and rollback tests
+- [ ] Check for update works on Steam Deck with internet access
+- [ ] Updater correctly reports a development build newer than latest stable
+- [ ] A newer test release downloads and passes GitHub SHA-256 verification
+- [ ] Update swaps the plugin and preserves a rollback backup on Steam Deck
+- [ ] Manual Decky reload loads the newly installed build
+- [ ] Rollback restores the previous build and reload succeeds
+
+Updater policy: no silent installs. DeckyShare only installs after explicit confirmation, validates the GitHub release ZIP and SHA-256 digest, preserves a rollback backup, and requires a Decky reload to activate the new code.
+
 ## SteamOS
 - [ ] SteamOS Stable
 - [ ] SteamOS Beta
