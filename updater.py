@@ -1,0 +1,529 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import stat
+import tempfile
+import threading
+import time
+import urllib.parse
+import urllib.request
+import uuid
+import zipfile
+from pathlib import Path, PurePosixPath
+
+
+REPO = "gillrajvir950-wq/deckyshare"
+API_RELEASES = f"https://api.github.com/repos/{REPO}/releases"
+USER_AGENT = "DeckyShare-Updater/1.1"
+MAX_ASSET_BYTES = 50 * 1024 * 1024
+MAX_UNPACKED_BYTES = 200 * 1024 * 1024
+MAX_ZIP_ENTRIES = 2000
+CHECK_CACHE_SECONDS = 300
+
+
+class UpdateError(RuntimeError):
+    pass
+
+
+_VERSION_RE = re.compile(
+    r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
+    r"(?:-(?P<pre>[0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
+)
+
+
+def parse_version(value: str):
+    text = str(value or "").strip()
+    match = _VERSION_RE.match(text)
+    if not match:
+        raise ValueError(f"Invalid version: {value}")
+    core = (
+        int(match.group("major")),
+        int(match.group("minor")),
+        int(match.group("patch")),
+    )
+    pre = match.group("pre")
+    if pre is None:
+        return core, None
+    parts = []
+    for token in re.split(r"[.-]", pre):
+        if token.isdigit():
+            parts.append((0, int(token)))
+            continue
+        token_lower = token.lower()
+        compact = re.match(r"^(alpha|beta|rc|pre)(\d+)$", token_lower)
+        if compact:
+            parts.append((1, compact.group(1)))
+            parts.append((0, int(compact.group(2))))
+        else:
+            parts.append((1, token_lower))
+    return core, tuple(parts)
+
+
+def compare_versions(left: str, right: str) -> int:
+    lc, lp = parse_version(left)
+    rc, rp = parse_version(right)
+    if lc != rc:
+        return -1 if lc < rc else 1
+    if lp is None and rp is None:
+        return 0
+    if lp is None:
+        return 1
+    if rp is None:
+        return -1
+    for a, b in zip(lp, rp):
+        if a == b:
+            continue
+        if a[0] != b[0]:
+            return -1 if a[0] < b[0] else 1
+        return -1 if a[1] < b[1] else 1
+    if len(lp) == len(rp):
+        return 0
+    return -1 if len(lp) < len(rp) else 1
+
+
+def normalize_tag(tag: str) -> str:
+    text = str(tag or "").strip()
+    return text[1:] if text.lower().startswith("v") else text
+
+
+def read_package_version(plugin_dir: Path) -> str:
+    package = plugin_dir / "package.json"
+    try:
+        data = json.loads(package.read_text(encoding="utf-8"))
+        version = str(data.get("version") or "").strip()
+        parse_version(version)
+        return version
+    except Exception as exc:
+        raise UpdateError(f"Could not read current DeckyShare version: {exc}") from exc
+
+
+def _safe_release_notes(body: str, limit: int = 1400) -> str:
+    text = str(body or "").replace("\r", "").strip()
+    if len(text) > limit:
+        text = text[:limit].rstrip() + "…"
+    return text
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _asset_sha256(asset: dict) -> str:
+    digest = str(asset.get("digest") or "").strip().lower()
+    if not digest.startswith("sha256:"):
+        raise UpdateError("Release asset has no GitHub SHA-256 digest")
+    value = digest.split(":", 1)[1]
+    if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+        raise UpdateError("Release asset SHA-256 digest is invalid")
+    return value
+
+
+def _validate_asset_url(url: str) -> None:
+    parsed = urllib.parse.urlsplit(url)
+    expected_prefix = f"/{REPO}/releases/download/"
+    if parsed.scheme != "https" or parsed.hostname != "github.com" or not parsed.path.startswith(expected_prefix):
+        raise UpdateError("Release asset URL is not an approved DeckyShare GitHub release URL")
+
+
+def _choose_asset(release: dict) -> dict:
+    tag = normalize_tag(release.get("tag_name"))
+    assets = list(release.get("assets") or [])
+    preferred = f"DeckyShare-v{tag}.zip".lower()
+    candidates = [a for a in assets if str(a.get("name") or "").lower() == preferred]
+    if not candidates:
+        candidates = [
+            a
+            for a in assets
+            if str(a.get("name") or "").lower().startswith("deckyshare-")
+            and str(a.get("name") or "").lower().endswith(".zip")
+        ]
+    if len(candidates) != 1:
+        raise UpdateError("Release does not contain exactly one DeckyShare ZIP asset")
+    asset = candidates[0]
+    size = int(asset.get("size") or 0)
+    if size <= 0 or size > MAX_ASSET_BYTES:
+        raise UpdateError("Release asset size is invalid or too large")
+    url = str(asset.get("browser_download_url") or "")
+    _validate_asset_url(url)
+    sha256 = _asset_sha256(asset)
+    return {
+        "name": str(asset.get("name") or ""),
+        "url": url,
+        "size": size,
+        "sha256": sha256,
+    }
+
+
+def _http_json(url: str, timeout: float = 8.0):
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": USER_AGENT,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        if int(getattr(response, "status", 200)) != 200:
+            raise UpdateError(f"GitHub returned HTTP {response.status}")
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _download(url: str, dest: Path, expected_size: int, timeout: float = 20.0):
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    total = 0
+    with urllib.request.urlopen(req, timeout=timeout) as response, dest.open("wb") as out:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_ASSET_BYTES:
+                raise UpdateError("Downloaded update exceeded the allowed size")
+            out.write(chunk)
+    if total != expected_size:
+        raise UpdateError(f"Downloaded update size mismatch ({total} != {expected_size})")
+    return total
+
+
+def _zip_member_is_symlink(info: zipfile.ZipInfo) -> bool:
+    mode = (info.external_attr >> 16) & 0xFFFF
+    return stat.S_ISLNK(mode)
+
+
+def validate_update_zip(archive: Path, release_version: str) -> Path:
+    total = 0
+    try:
+        with zipfile.ZipFile(archive, "r") as zf:
+            infos = zf.infolist()
+            if not infos or len(infos) > MAX_ZIP_ENTRIES:
+                raise UpdateError("Update ZIP has an invalid number of files")
+            for info in infos:
+                name = str(info.filename or "").replace("\\", "/")
+                pure = PurePosixPath(name)
+                if not name or pure.is_absolute() or ".." in pure.parts:
+                    raise UpdateError("Update ZIP contains an unsafe path")
+                if not pure.parts or pure.parts[0] != "DeckyShare":
+                    raise UpdateError("Update ZIP root must be DeckyShare/")
+                if _zip_member_is_symlink(info):
+                    raise UpdateError("Update ZIP may not contain symbolic links")
+                total += int(info.file_size or 0)
+                if total > MAX_UNPACKED_BYTES:
+                    raise UpdateError("Update ZIP expands beyond the allowed size")
+
+            required = {
+                "DeckyShare/plugin.json",
+                "DeckyShare/package.json",
+                "DeckyShare/main.py",
+                "DeckyShare/dist/index.js",
+            }
+            names = {str(i.filename).replace("\\", "/").rstrip("/") for i in infos}
+            if required - names:
+                raise UpdateError("Update ZIP is missing required DeckyShare files")
+
+            plugin_meta = json.loads(zf.read("DeckyShare/plugin.json").decode("utf-8"))
+            if plugin_meta.get("name") != "DeckyShare":
+                raise UpdateError("Update ZIP plugin identity does not match DeckyShare")
+
+            package = json.loads(zf.read("DeckyShare/package.json").decode("utf-8"))
+            archive_version = str(package.get("version") or "").strip()
+            if compare_versions(archive_version, release_version) != 0:
+                raise UpdateError(
+                    f"Update ZIP version {archive_version!r} does not match release {release_version!r}"
+                )
+    except zipfile.BadZipFile as exc:
+        raise UpdateError("Downloaded update is not a valid ZIP") from exc
+    return Path("DeckyShare")
+
+
+def _validate_extracted_plugin(root: Path, release_version: str) -> None:
+    if not root.is_dir():
+        raise UpdateError("Extracted DeckyShare folder is missing")
+    required = [root / "plugin.json", root / "package.json", root / "main.py", root / "dist" / "index.js"]
+    if any(not p.is_file() for p in required):
+        raise UpdateError("Extracted update is missing required files")
+    try:
+        plugin = json.loads((root / "plugin.json").read_text(encoding="utf-8"))
+        package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise UpdateError(f"Extracted update metadata is invalid: {exc}") from exc
+    if plugin.get("name") != "DeckyShare":
+        raise UpdateError("Extracted update has the wrong plugin identity")
+    if compare_versions(str(package.get("version") or ""), release_version) != 0:
+        raise UpdateError("Extracted update version does not match the release")
+    for py in root.rglob("*.py"):
+        try:
+            compile(py.read_text(encoding="utf-8"), str(py), "exec")
+        except Exception as exc:
+            raise UpdateError(f"Python syntax validation failed for {py.name}: {exc}") from exc
+    if (root / "dist" / "index.js").stat().st_size < 256:
+        raise UpdateError("DeckyShare frontend bundle is unexpectedly small")
+
+
+class UpdateManager:
+    def __init__(self, plugin_dir: Path, user_home: Path):
+        self.plugin_dir = Path(plugin_dir).resolve()
+        self.user_home = Path(user_home).resolve()
+        self.data_dir = self.user_home / ".cache" / "DeckyShare" / "updater"
+        self.backups_dir = self.data_dir / "backups"
+        self.state_path = self.data_dir / "state.json"
+        self._lock = threading.RLock()
+        self._cached_check = None
+        self._cached_at = 0.0
+
+    @property
+    def current_version(self) -> str:
+        return read_package_version(self.plugin_dir)
+
+    def _read_state(self) -> dict:
+        try:
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _write_state(self, data: dict) -> None:
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.state_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, self.state_path)
+
+    def state(self) -> dict:
+        current = self.current_version
+        state = self._read_state()
+        backup = Path(state.get("backup_path") or "") if state.get("backup_path") else None
+        rollback_available = bool(backup and backup.is_dir() and (backup / "plugin.json").is_file())
+        return {
+            "ok": True,
+            "current": current,
+            "rollback_available": rollback_available,
+            "previous_version": state.get("previous_version") if rollback_available else None,
+            "last_installed": state.get("last_installed"),
+            "installed_at": state.get("installed_at"),
+        }
+
+    def _fetch_release(self, include_prerelease: bool = False) -> dict:
+        releases = _http_json(f"{API_RELEASES}?per_page=12")
+        if not isinstance(releases, list):
+            raise UpdateError("GitHub returned invalid release data")
+        for release in releases:
+            if release.get("draft"):
+                continue
+            if release.get("prerelease") and not include_prerelease:
+                continue
+            tag = normalize_tag(release.get("tag_name"))
+            try:
+                parse_version(tag)
+            except ValueError:
+                continue
+            asset = _choose_asset(release)
+            return {
+                "version": tag,
+                "tag": str(release.get("tag_name") or ""),
+                "name": str(release.get("name") or release.get("tag_name") or tag),
+                "prerelease": bool(release.get("prerelease")),
+                "published_at": release.get("published_at"),
+                "html_url": release.get("html_url"),
+                "notes": _safe_release_notes(release.get("body") or ""),
+                "asset": asset,
+            }
+        raise UpdateError("No compatible DeckyShare release was found")
+
+    def check(self, include_prerelease: bool = False, force: bool = False) -> dict:
+        with self._lock:
+            now = time.time()
+            channel = bool(include_prerelease)
+            if (
+                not force
+                and self._cached_check
+                and self._cached_check.get("_channel") == channel
+                and now - self._cached_at < CHECK_CACHE_SECONDS
+            ):
+                cached = dict(self._cached_check)
+                cached.pop("_channel", None)
+                cached.update(self.state())
+                return cached
+
+            current = self.current_version
+            release = self._fetch_release(include_prerelease=include_prerelease)
+            relation = compare_versions(current, release["version"])
+            result = {
+                "ok": True,
+                "current": current,
+                "latest": release["version"],
+                "latest_tag": release["tag"],
+                "latest_name": release["name"],
+                "available": relation < 0,
+                "ahead": relation > 0,
+                "same": relation == 0,
+                "prerelease": release["prerelease"],
+                "published_at": release["published_at"],
+                "release_url": release["html_url"],
+                "notes": release["notes"],
+                "asset_name": release["asset"]["name"],
+                "asset_size": release["asset"]["size"],
+                "sha256": release["asset"]["sha256"],
+                "verified_digest": True,
+            }
+            result.update(self.state())
+            cached = dict(result)
+            cached["_channel"] = channel
+            self._cached_check = cached
+            self._cached_at = now
+            return result
+
+    def _prepare_backup(self, current_version: str) -> Path:
+        self.backups_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+        backup = self.backups_dir / f"{stamp}-{current_version}" / "DeckyShare"
+        backup.parent.mkdir(parents=True, exist_ok=False)
+        shutil.copytree(self.plugin_dir, backup, symlinks=False)
+        return backup
+
+    def _prune_backups(self, keep: int = 2) -> None:
+        try:
+            dirs = sorted(
+                [p for p in self.backups_dir.iterdir() if p.is_dir()],
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for old in dirs[keep:]:
+                shutil.rmtree(old, ignore_errors=True)
+        except Exception:
+            pass
+
+    def _swap_in(self, staged_root: Path, release_version: str, backup: Path) -> None:
+        parent = self.plugin_dir.parent
+        old_live = parent / f".DeckyShare-old-{uuid.uuid4().hex}"
+        swapped_old = False
+        try:
+            os.replace(self.plugin_dir, old_live)
+            swapped_old = True
+            os.replace(staged_root, self.plugin_dir)
+        except Exception as exc:
+            if swapped_old and old_live.exists() and not self.plugin_dir.exists():
+                try:
+                    os.replace(old_live, self.plugin_dir)
+                except Exception as rollback_exc:
+                    raise UpdateError(
+                        f"Update swap failed and automatic rollback also failed: {rollback_exc}"
+                    ) from exc
+            raise UpdateError(f"Could not replace the DeckyShare plugin directory: {exc}") from exc
+        finally:
+            if old_live.exists() and self.plugin_dir.exists():
+                shutil.rmtree(old_live, ignore_errors=True)
+
+        state = {
+            "last_installed": release_version,
+            "previous_version": read_package_version(backup),
+            "backup_path": str(backup),
+            "installed_at": time.time(),
+        }
+        self._write_state(state)
+        self._cached_check = None
+        self._cached_at = 0.0
+        self._prune_backups()
+
+    def install_archive(self, archive: Path, release_version: str, expected_sha256: str) -> dict:
+        archive = Path(archive)
+        actual = _sha256_file(archive)
+        if actual.lower() != str(expected_sha256).lower():
+            raise UpdateError("SHA-256 verification failed; update was not installed")
+        validate_update_zip(archive, release_version)
+
+        parent = self.plugin_dir.parent
+        stage_dir = Path(tempfile.mkdtemp(prefix=".deckyshare-update-stage-", dir=str(parent)))
+        try:
+            with zipfile.ZipFile(archive, "r") as zf:
+                zf.extractall(stage_dir)
+            staged_root = stage_dir / "DeckyShare"
+            _validate_extracted_plugin(staged_root, release_version)
+            current = self.current_version
+            if compare_versions(release_version, current) <= 0:
+                raise UpdateError("Refusing to install a non-newer DeckyShare version")
+            backup = self._prepare_backup(current)
+            self._swap_in(staged_root, release_version, backup)
+            return {
+                "ok": True,
+                "installed": release_version,
+                "previous": current,
+                "verified_sha256": actual,
+                "reload_required": True,
+                "message": "Update installed safely. Reload DeckyShare from Decky settings to finish.",
+            }
+        finally:
+            shutil.rmtree(stage_dir, ignore_errors=True)
+
+    def install_latest(self, expected_tag: str | None = None, include_prerelease: bool = False) -> dict:
+        with self._lock:
+            check = self.check(include_prerelease=include_prerelease, force=True)
+            if not check.get("available"):
+                raise UpdateError("No newer DeckyShare release is available")
+            if expected_tag and str(expected_tag) != str(check.get("latest_tag")):
+                raise UpdateError("Available release changed; check for updates again")
+
+            release = self._fetch_release(include_prerelease=include_prerelease)
+            if release["tag"] != check["latest_tag"]:
+                raise UpdateError("Available release changed during update; nothing was installed")
+            asset = release["asset"]
+
+            with tempfile.TemporaryDirectory(prefix="deckyshare-download-") as td:
+                archive = Path(td) / asset["name"]
+                _download(asset["url"], archive, int(asset["size"]))
+                return self.install_archive(archive, release["version"], asset["sha256"])
+
+    def rollback(self) -> dict:
+        with self._lock:
+            state = self._read_state()
+            backup = Path(state.get("backup_path") or "") if state.get("backup_path") else None
+            if not backup or not backup.is_dir():
+                raise UpdateError("No DeckyShare updater backup is available")
+            previous = read_package_version(backup)
+            current = self.current_version
+
+            parent = self.plugin_dir.parent
+            stage_dir = Path(tempfile.mkdtemp(prefix=".deckyshare-rollback-stage-", dir=str(parent)))
+            try:
+                staged_root = stage_dir / "DeckyShare"
+                shutil.copytree(backup, staged_root)
+                _validate_extracted_plugin(staged_root, previous)
+                old_live = parent / f".DeckyShare-rollback-old-{uuid.uuid4().hex}"
+                swapped = False
+                try:
+                    os.replace(self.plugin_dir, old_live)
+                    swapped = True
+                    os.replace(staged_root, self.plugin_dir)
+                except Exception as exc:
+                    if swapped and old_live.exists() and not self.plugin_dir.exists():
+                        os.replace(old_live, self.plugin_dir)
+                    raise UpdateError(f"Rollback failed: {exc}") from exc
+                finally:
+                    if old_live.exists() and self.plugin_dir.exists():
+                        shutil.rmtree(old_live, ignore_errors=True)
+
+                self._write_state({
+                    "last_installed": previous,
+                    "rolled_back_from": current,
+                    "installed_at": time.time(),
+                })
+                self._cached_check = None
+                return {
+                    "ok": True,
+                    "installed": previous,
+                    "previous": current,
+                    "reload_required": True,
+                    "message": "Previous DeckyShare build restored. Reload DeckyShare from Decky settings.",
+                }
+            finally:
+                shutil.rmtree(stage_dir, ignore_errors=True)
