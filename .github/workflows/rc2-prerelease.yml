@@ -1,0 +1,73 @@
+name: Publish DeckyShare RC2 prerelease
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc2-release
+    paths:
+      - .github/workflows/rc2-prerelease.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC2 branch
+        uses: actions/checkout@v4
+
+      - name: Build installable DeckyShare ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf package
+          mkdir -p package/DeckyShare
+          rsync -a ./ package/DeckyShare/ \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'tests' \
+            --exclude 'tools' \
+            --exclude 'RELEASE_CHECKLIST.md'
+          sed -i 's/v1\.1\.0-rc1/v1.1.0-rc2/g; s/1\.1\.0-rc\.1/1.1.0-rc.2/g' package/DeckyShare/dist/index.js
+          cd package
+          zip -qr ../DeckyShare-v1.1.0-rc.2.zip DeckyShare
+
+      - name: Validate package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          p = Path('DeckyShare-v1.1.0-rc.2.zip')
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              names = set(z.namelist())
+              assert 'DeckyShare/main.py' in names
+              assert 'DeckyShare/plugin.json' in names
+              assert 'DeckyShare/package.json' in names
+              assert 'DeckyShare/dist/index.js' in names
+              package = json.loads(z.read('DeckyShare/package.json'))
+              plugin = json.loads(z.read('DeckyShare/plugin.json'))
+              assert package['version'] == '1.1.0-rc.2'
+              assert plugin['name'] == 'DeckyShare'
+          print('RC2 ZIP validation passed')
+          PY
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0-rc.2 >/dev/null 2>&1; then
+            echo 'v1.1.0-rc.2 already exists; leaving it unchanged.'
+            exit 0
+          fi
+          gh release create v1.1.0-rc.2 DeckyShare-v1.1.0-rc.2.zip \
+            --prerelease \
+            --target v1.1.0-rc2-release \
+            --title 'DeckyShare v1.1.0-rc.2' \
+            --notes 'Updater end-to-end hardware test prerelease. RC2 includes the verified updater TLS fix, Decky module-collision fix, safe backup/rollback flow, and RC builds automatically follow prerelease updates. Not intended as the public stable release.'
