@@ -216,7 +216,7 @@ function makePanel(){
       finally{setUpdateBusy(false);}
     }
 
-    useEffect(()=>{bootstrap();call("update_state").then(r=>{if(r&&r.ok)setUpdateInfo(r);}).catch(()=>{});},[]);
+    useEffect(()=>{bootstrap();},[]);
     useEffect(()=>{if(!status)return;const t=setInterval(refreshStatus,1000);return()=>clearInterval(t);},[!!status]);
 
     const conns=status&&status.addresses||[];
