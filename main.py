@@ -47,6 +47,16 @@ def _payload_value(payload, key, default=None):
     return default
 
 
+def _include_prereleases(updater, payload=None):
+    """RC/dev builds follow prereleases; stable builds stay on stable channel."""
+    requested = bool(_payload_value(payload, "include_prerelease", False))
+    try:
+        current = str(updater.current_version or "")
+    except Exception:
+        current = ""
+    return requested or "-" in current
+
+
 class Plugin(_core.Plugin):
     async def update_state(self, *args, **kwargs):
         try:
@@ -56,10 +66,10 @@ class Plugin(_core.Plugin):
             return {"ok": False, "error": str(exc)}
 
     async def check_update(self, payload=None, *args, **kwargs):
-        include_prerelease = bool(_payload_value(payload, "include_prerelease", False))
         force = bool(_payload_value(payload, "force", False))
         try:
             updater = _get_updater()
+            include_prerelease = _include_prereleases(updater, payload)
             return await asyncio.to_thread(updater.check, include_prerelease, force)
         except (OSError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
@@ -69,9 +79,9 @@ class Plugin(_core.Plugin):
 
     async def install_update(self, payload=None, *args, **kwargs):
         expected_tag = _payload_value(payload, "tag")
-        include_prerelease = bool(_payload_value(payload, "include_prerelease", False))
         try:
             updater = _get_updater()
+            include_prerelease = _include_prereleases(updater, payload)
             return await asyncio.to_thread(updater.install_latest, expected_tag, include_prerelease)
         except (OSError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
