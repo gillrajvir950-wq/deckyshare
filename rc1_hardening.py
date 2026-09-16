@@ -39,7 +39,7 @@ def install(core):
 
     def html_page(address):
         page = original_html(address)
-        return page.replace("v1.1-dev", "v1.1.0-rc1")
+        return page.replace("v1.1-dev", "v1.1.0-rc2")
 
     core.unique_destination_path = unique_destination_path
     core.html_page = html_page
