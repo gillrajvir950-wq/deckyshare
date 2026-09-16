@@ -1,0 +1,389 @@
+name: Publish DeckyShare RC5 prerelease
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc5-release
+    paths:
+      - .github/workflows/rc5-prerelease.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC5 branch
+        uses: actions/checkout@v4
+
+      - name: Build DeckyShare RC5
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf package DeckyShare-v1.1.0-rc.5.zip
+          mkdir -p package/DeckyShare
+          rsync -a ./ package/DeckyShare/ \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'tests' \
+            --exclude 'tools' \
+            --exclude 'RELEASE_CHECKLIST.md'
+
+          python - <<'PY'
+          from pathlib import Path
+          import json, re, textwrap
+
+          root = Path('package/DeckyShare')
+          version = '1.1.0-rc.5'
+
+          # Version metadata.
+          p = root / 'package.json'
+          data = json.loads(p.read_text())
+          data['version'] = version
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          # Decky 3.2.9 frozen Python can omit http.server. Keep the small subset
+          # DeckyShare needs inside the plugin package instead.
+          http_compat = r'''"""HTTP compatibility layer for DeckyShare on frozen Decky Python."""
+          from __future__ import annotations
+          import email.utils
+          import socket
+          import sys
+          import threading
+          from http import HTTPStatus
+          import http.client
+
+          class ThreadingHTTPServer:
+              daemon_threads = True
+              allow_reuse_address = True
+              def __init__(self, server_address, RequestHandlerClass):
+                  self.RequestHandlerClass = RequestHandlerClass
+                  self._shutdown = threading.Event()
+                  self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                  if self.allow_reuse_address:
+                      self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                  self.socket.bind(server_address)
+                  self.socket.listen(32)
+                  self.socket.settimeout(0.5)
+                  self.server_address = self.socket.getsockname()
+                  self.server_name = str(self.server_address[0] or '0.0.0.0')
+                  self.server_port = self.server_address[1]
+              def serve_forever(self, poll_interval=0.5):
+                  while not self._shutdown.is_set():
+                      try:
+                          request, client_address = self.socket.accept()
+                      except socket.timeout:
+                          continue
+                      except OSError:
+                          if self._shutdown.is_set(): break
+                          raise
+                      threading.Thread(target=self._handle_request,args=(request,client_address),name='DeckyShareHTTPClient',daemon=True).start()
+              def _handle_request(self, request, client_address):
+                  try:
+                      self.RequestHandlerClass(request, client_address, self)
+                  except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                      pass
+                  except Exception:
+                      pass
+                  finally:
+                      try: request.close()
+                      except Exception: pass
+              def shutdown(self):
+                  self._shutdown.set()
+                  try:
+                      with socket.create_connection(self.server_address, timeout=0.2): pass
+                  except Exception: pass
+              def server_close(self):
+                  try: self.socket.close()
+                  except Exception: pass
+
+          class BaseHTTPRequestHandler:
+              server_version = 'BaseHTTP/0.1'
+              sys_version = 'Python/' + sys.version.split()[0]
+              protocol_version = 'HTTP/1.0'
+              default_request_version = 'HTTP/0.9'
+              def __init__(self, request, client_address, server):
+                  self.request=request; self.connection=request; self.client_address=client_address; self.server=server
+                  self.close_connection=True; self.requestline=''; self.request_version=self.default_request_version
+                  self.command=None; self.path=''; self._headers_buffer=[]
+                  self.rfile=request.makefile('rb',buffering=0); self.wfile=request.makefile('wb',buffering=0)
+                  try: self.handle()
+                  finally:
+                      try: self.wfile.flush()
+                      except Exception: pass
+                      try: self.rfile.close()
+                      except Exception: pass
+                      try: self.wfile.close()
+                      except Exception: pass
+              def handle(self): self.handle_one_request()
+              def handle_one_request(self):
+                  self.raw_requestline=self.rfile.readline(65537)
+                  if not self.raw_requestline: return
+                  if len(self.raw_requestline)>65536:
+                      self.send_error(414,'Request URI too long'); return
+                  try: requestline=self.raw_requestline.decode('iso-8859-1').rstrip('\r\n')
+                  except Exception:
+                      self.send_error(400,'Bad request'); return
+                  self.requestline=requestline; parts=requestline.split()
+                  if len(parts) not in (2,3):
+                      self.send_error(400,'Bad request syntax'); return
+                  self.command=parts[0]; self.path=parts[1]; self.request_version=parts[2] if len(parts)==3 else 'HTTP/0.9'
+                  try: self.headers=http.client.parse_headers(self.rfile)
+                  except Exception:
+                      self.send_error(431,'Bad request headers'); return
+                  method=getattr(self,'do_'+self.command,None)
+                  if method is None:
+                      self.send_error(501,'Unsupported method'); return
+                  method()
+              def version_string(self): return f'{self.server_version} {self.sys_version}'
+              def date_time_string(self,timestamp=None): return email.utils.formatdate(timestamp,usegmt=True)
+              def send_response(self,code,message=None):
+                  self.log_request(code); self.send_response_only(code,message); self.send_header('Server',self.version_string()); self.send_header('Date',self.date_time_string())
+              def send_response_only(self,code,message=None):
+                  try: code_int=int(code)
+                  except Exception: code_int=500
+                  if message is None:
+                      try: message=HTTPStatus(code_int).phrase
+                      except Exception: message=''
+                  self._headers_buffer=[f'{self.protocol_version} {code_int} {message}\r\n'.encode('latin-1','strict')]
+              def send_header(self,keyword,value):
+                  if not hasattr(self,'_headers_buffer'): self._headers_buffer=[]
+                  self._headers_buffer.append(f'{keyword}: {value}\r\n'.encode('latin-1','strict'))
+              def end_headers(self): self._headers_buffer.append(b'\r\n'); self.flush_headers()
+              def flush_headers(self):
+                  if self._headers_buffer:
+                      self.wfile.write(b''.join(self._headers_buffer)); self._headers_buffer=[]
+              def send_error(self,code,message=None,explain=None):
+                  try: code_int=int(code)
+                  except Exception: code_int=500
+                  if message is None:
+                      try: message=HTTPStatus(code_int).phrase
+                      except Exception: message='Error'
+                  body=(f'{code_int} {message}\n'+(f'{explain}\n' if explain else '')).encode('utf-8','replace')
+                  self.send_response(code_int,message); self.send_header('Content-Type','text/plain; charset=utf-8'); self.send_header('Content-Length',str(len(body))); self.send_header('Connection','close'); self.end_headers()
+                  if self.command!='HEAD': self.wfile.write(body)
+              def log_request(self,code='-',size='-'): self.log_message('"%s" %s %s',self.requestline,str(code),str(size))
+              def log_message(self,fmt,*args): pass
+          '''
+          (root/'decky_http_server.py').write_text(textwrap.dedent(http_compat).lstrip())
+
+          # Patch core backend for Decky 3.2.9 and make LAN server startup unable
+          # to block Decky's own plugin RPC loop.
+          p = root/'core_main.py'
+          s = p.read_text()
+          s = s.replace('from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer','from decky_http_server import BaseHTTPRequestHandler, ThreadingHTTPServer',1)
+          hostname_block='''    try:\n        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_STREAM):\n            add(info[4][0], "hostname")\n    except Exception:\n        pass\n\n'''
+          s = s.replace(hostname_block,'',1)
+          if '_START_SERVER_LOCK = threading.Lock()' not in s:
+              s = s.replace('STATE = State()\n','STATE = State()\n_START_SERVER_LOCK = threading.Lock()\n',1)
+          m=re.search(r'def start_server\(\):\n.*?(?=\n\ndef selected_info\(\))',s,re.S)
+          if not m: raise SystemExit('start_server block missing')
+          start_server='''def start_server():\n    with _START_SERVER_LOCK:\n        if STATE.server is not None:\n            return\n        last_error = None\n        for port in range(PORT_START, PORT_END + 1):\n            try:\n                server = ThreadingHTTPServer(("0.0.0.0", port), Handler)\n                STATE.port = port\n                STATE.server = server\n                th = threading.Thread(target=server.serve_forever, name="DeckyShareHTTP", daemon=True)\n                th.start()\n                STATE.thread = th\n                decky.logger.info(f"DeckyShare listening on {port}")\n                return\n            except OSError as exc:\n                last_error = exc\n                continue\n        raise RuntimeError(f"DeckyShare could not bind a port: {last_error}")\n'''
+          s=s[:m.start()]+start_server+s[m.end():]
+          s=s.replace('''    async def bootstrap(self, *args, **kwargs):\n        if STATE.server is None:\n            start_server()\n''','''    async def bootstrap(self, *args, **kwargs):\n        if STATE.server is None:\n            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)\n''',1)
+          s=s.replace('''    async def status(self, *args, **kwargs):\n        if STATE.server is None:\n            start_server()\n''','''    async def status(self, *args, **kwargs):\n        if STATE.server is None:\n            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)\n''',1)
+          s=s.replace('''    async def ping(self, *args, **kwargs):\n        if STATE.server is None:\n            start_server()\n        return {"ok": True, "port": STATE.port}\n''','''    async def ping(self, *args, **kwargs):\n        if STATE.server is None:\n            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)\n        return {"ok": True, "port": STATE.port}\n''',1)
+          old_main='''    async def _main(self):\n        try:\n            STATE.loop = asyncio.get_running_loop()\n            start_server()\n        except Exception:\n            decky.logger.exception("DeckyShare failed to start in _main; frontend bootstrap will retry")\n'''
+          new_main='''    async def _main(self):\n        STATE.loop = asyncio.get_running_loop()\n        try:\n            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)\n        except Exception:\n            decky.logger.exception("DeckyShare failed to start in _main; frontend bootstrap will retry")\n'''
+          if old_main not in s: raise SystemExit('_main block missing')
+          s=s.replace(old_main,new_main,1)
+          p.write_text(s)
+
+          # Add native Decky install preparation helpers to updater.
+          p=root/'updater.py'; s=p.read_text()
+          if 'def prepare_install(' not in s:
+              marker='    def install_latest(self, expected_tag: str | None = None, include_prerelease: bool = False) -> dict:\n'
+              methods=textwrap.dedent('''
+                  def prepare_install(self, expected_tag: str | None = None, include_prerelease: bool = False) -> dict:
+                      with self._lock:
+                          release = self._fetch_release(include_prerelease=include_prerelease)
+                          if expected_tag and str(expected_tag) != str(release["tag"]):
+                              raise UpdateError("Release changed since the update check. Check again.")
+                          current = self.current_version
+                          if compare_versions(release["version"], current) <= 0:
+                              raise UpdateError("No newer DeckyShare release is available")
+                          asset = release["asset"]
+                          return {"ok":True,"request_install":True,"installer":"decky-loader","artifact":asset["url"],"name":"DeckyShare","version":release["version"],"tag":release["tag"],"sha256":asset["sha256"],"install_type":2,"previous":current,"message":"Decky Loader confirmation is required."}
+
+                  def prepare_rollback(self) -> dict:
+                      raise UpdateError("Rollback is not available for this prerelease test build")
+
+              ''')
+              methods=textwrap.indent(methods,'    ')
+              if marker not in s: raise SystemExit('install_latest marker missing')
+              s=s.replace(marker,methods+marker,1)
+          p.write_text(s)
+
+          # Fail-open main wrapper with exact startup diagnostics and native updater handoff.
+          main_code = r'''from pathlib import Path
+          import asyncio
+          import os
+          import sys
+          import traceback
+
+          _PLUGIN_DIR = Path(__file__).resolve().parent
+          if str(_PLUGIN_DIR) not in sys.path:
+              sys.path.insert(0, str(_PLUGIN_DIR))
+
+          _STARTUP_ERROR = None
+          _core = None
+          try:
+              import core_main as _core
+              from exactly_once_bootstrap import install as _install_reliability
+              _install_reliability(_core)
+              _core.Handler.server_version = "DeckyShare/1.1.0-rc5"
+          except Exception:
+              _STARTUP_ERROR = traceback.format_exc()
+              _core = None
+
+          def _diag_payload(stage, error=None):
+              return {"ok":False,"startup_error":str(error or _STARTUP_ERROR or "Unknown backend startup error"),"startup_stage":stage,"decky_version":os.environ.get("DECKY_VERSION","unknown"),"python_version":sys.version.split()[0],"diagnostic_build":"decky329"}
+
+          _UPDATER = None
+          def _get_updater():
+              global _UPDATER
+              if _UPDATER is None:
+                  import importlib.util
+                  updater_path = _PLUGIN_DIR / "updater.py"
+                  module_name = "_deckyshare_plugin_updater"
+                  spec = importlib.util.spec_from_file_location(module_name, updater_path)
+                  if spec is None or spec.loader is None: raise RuntimeError("Could not load DeckyShare updater module")
+                  module = importlib.util.module_from_spec(spec)
+                  sys.modules[module_name] = module
+                  try: spec.loader.exec_module(module)
+                  except Exception:
+                      sys.modules.pop(module_name, None); raise
+                  _UPDATER = module.UpdateManager(_PLUGIN_DIR, Path(_core.decky.DECKY_USER_HOME))
+              return _UPDATER
+
+          def _payload_value(payload,key,default=None):
+              return payload.get(key,default) if isinstance(payload,dict) else default
+
+          def _include_prereleases(updater,payload=None):
+              requested=bool(_payload_value(payload,"include_prerelease",False))
+              try: current=str(updater.current_version or "")
+              except Exception: current=""
+              return requested or "-" in current
+
+          if _core is None:
+              class Plugin:
+                  async def bootstrap(self,*args,**kwargs): return _diag_payload("module import")
+                  async def status(self,*args,**kwargs): return _diag_payload("module import")
+                  async def startup_diagnostics(self,*args,**kwargs): return _diag_payload("module import")
+          else:
+              class Plugin(_core.Plugin):
+                  async def bootstrap(self,*args,**kwargs):
+                      try:
+                          result=await super().bootstrap(*args,**kwargs)
+                          if isinstance(result,dict):
+                              result["decky_version"]=os.environ.get("DECKY_VERSION","unknown"); result["python_version"]=sys.version.split()[0]; result["diagnostic_build"]="decky329"
+                          return result
+                      except Exception: return _diag_payload("bootstrap/server start",traceback.format_exc())
+                  async def status(self,*args,**kwargs):
+                      try:
+                          result=await super().status(*args,**kwargs)
+                          if isinstance(result,dict): result["decky_version"]=os.environ.get("DECKY_VERSION","unknown"); result["diagnostic_build"]="decky329"
+                          return result
+                      except Exception: return _diag_payload("status/server start",traceback.format_exc())
+                  async def startup_diagnostics(self,*args,**kwargs):
+                      return {"ok":True,"decky_version":os.environ.get("DECKY_VERSION","unknown"),"python_version":sys.version.split()[0],"diagnostic_build":"decky329","core_loaded":True}
+                  async def update_state(self,*args,**kwargs):
+                      try: return await asyncio.to_thread(_get_updater().state)
+                      except Exception as exc: return {"ok":False,"error":str(exc)}
+                  async def check_update(self,payload=None,*args,**kwargs):
+                      force=bool(_payload_value(payload,"force",False))
+                      try:
+                          updater=_get_updater(); return await asyncio.to_thread(updater.check,_include_prereleases(updater,payload),force)
+                      except Exception as exc: return {"ok":False,"error":f"Update check failed: {exc}"}
+                  async def install_update(self,payload=None,*args,**kwargs):
+                      expected_tag=_payload_value(payload,"tag")
+                      try:
+                          updater=_get_updater(); return await asyncio.to_thread(updater.prepare_install,expected_tag,_include_prereleases(updater,payload))
+                      except Exception as exc: return {"ok":False,"error":f"Update installation failed: {exc}"}
+                  async def rollback_update(self,*args,**kwargs):
+                      try: return await asyncio.to_thread(_get_updater().prepare_rollback)
+                      except Exception as exc: return {"ok":False,"error":f"Rollback failed: {exc}"}
+          '''
+          (root/'main.py').write_text(textwrap.dedent(main_code).lstrip())
+
+          # Frontend: native monochrome satellite icon, native Decky installer,
+          # and no infinite startup spinner.
+          p=root/'dist'/'index.js'; s=p.read_text()
+          if 'function withTimeout(' not in s:
+              s=s.replace('function dirname(p){','''function withTimeout(promise,ms,label){\n  return Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(`${label} timed out after ${Math.ceil(ms/1000)}s`)),ms))]);\n}\n\nfunction dirname(p){''',1)
+          s=s.replace('const b=await call("bootstrap");','const b=await withTimeout(call("bootstrap"),6500,"Backend startup");',1)
+          if 'function deckyLoaderBackend()' not in s:
+              needle='''function connectDeckyBackend(){\n  const init=window.__DECKY_SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED_deckyLoaderAPIInit;\n  if(!init||typeof init.connect!=="function")throw new Error("Decky loader API is not initialized");\n  try{return init.connect(2,"DeckyShare");}catch(e){return init.connect(1,"DeckyShare");}\n}\n'''
+              s=s.replace(needle,needle+'''\nfunction deckyLoaderBackend(){\n  const loader=window.DeckyBackend;\n  if(!loader||typeof loader.call!=="function")throw new Error("Decky Loader install API is unavailable");\n  return loader;\n}\n''',1)
+          icon='''function DeckyShareBrandIcon({size=24}){\n  return h("svg",{viewBox:"0 0 24 24",width:size,height:size,fill:"none",stroke:"currentColor",strokeWidth:1.9,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true",style:{display:"block",color:"currentColor",flexShrink:0}},\n    h("path",{d:"M5.5 12.5a7 7 0 0 0 6 6l4-4a7 7 0 0 1-6-6z"}),\n    h("path",{d:"M11.5 12.5 18 6"}),\n    h("path",{d:"M15.5 4.5a6 6 0 0 1 4 4"}),\n    h("path",{d:"M16.8 8.2a2.4 2.4 0 0 1 1.9 1.9"}),\n    h("path",{d:"M8.7 18.3 6.6 21"}),\n    h("path",{d:"M4.9 21h4.7"})\n  );\n}\n\n'''
+          s=re.sub(r"const DECKYSHARE_ICON='data:image/png;base64,[^']+';\nfunction DeckyShareBrandIcon\(\{size=24\}\)\{.*?\n\}",icon.rstrip(),s,count=1,flags=re.S)
+          if 'function DeckyShareBrandIcon(' not in s: s=s.replace('function connectDeckyBackend(){',icon+'function connectDeckyBackend(){',1)
+          start=s.find('    async function installUpdate(){'); end=s.find('\n    async function rollbackUpdate()',start)
+          if start<0 or end<0: raise SystemExit('installUpdate block missing')
+          install_fn='''    async function installUpdate(){\n      if(updateBusy||!updateInfo||!updateInfo.available)return;\n      if(!updateArmed){setUpdateArmed(true);setTimeout(()=>setUpdateArmed(false),7000);return;}\n      setUpdateBusy(true);setUpdateArmed(false);\n      try{\n        const r=await call("install_update",{tag:updateInfo.latest_tag});\n        if(!r||!r.ok||!r.request_install)throw new Error(r&&r.error||"Update preparation failed");\n        const loader=deckyLoaderBackend();\n        await loader.call("utilities/install_plugin",r.artifact,r.name||"DeckyShare",r.version,r.sha256,Number(r.install_type||2));\n        setUpdateInfo(x=>({...x,installer_prompted:true,prepared_version:r.version})); setErr(""); toast(backendAPI,`Decky confirmation opened for v${r.version}`);\n      }catch(e){const msg=String(e&&e.message||e);setErr("Update: "+msg);setUpdateInfo(x=>({...x,install_error:msg}));}\n      finally{setUpdateBusy(false);}\n    }'''
+          s=s[:start]+install_fn+s[end:]
+          s=s.replace('h("div",{style:{fontSize:29}},"◉")','h(DeckyShareBrandIcon,{size:31})',1)
+          s=s.replace('icon:h("div",{style:{fontSize:20}},"↔"),','icon:h(DeckyShareBrandIcon,{size:22}),',1)
+          s=re.sub(r'v1\.1\.0-rc(?:1|2|3|4)(?:[^"<]*)?', 'v1.1.0-rc5', s)
+          s=s.replace('Decky 3.2.9 startup-hardened','v1.1.0-rc5 • Decky 3.2.9')
+          s=s.replace('Updates are never installed silently. ZIP identity, size and SHA-256 are verified before an atomic swap; a rollback backup is kept.','Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.')
+          p.write_text(s)
+
+          # Runtime browser badge.
+          p=root/'rc1_hardening.py'; s=p.read_text().replace('v1.1.0-rc1','v1.1.0-rc5').replace('v1.1.0-rc2','v1.1.0-rc5'); p.write_text(s)
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+          import json, subprocess, sys
+          root=Path('package/DeckyShare')
+          for p in root.rglob('*.py'):
+              compile(p.read_text(encoding='utf-8'),str(p),'exec')
+          subprocess.run(['node','--check',str(root/'dist'/'index.js')],check=True)
+          pkg=json.loads((root/'package.json').read_text())
+          assert pkg['version']=='1.1.0-rc.5'
+          main=(root/'main.py').read_text(); js=(root/'dist'/'index.js').read_text(); updater=(root/'updater.py').read_text(); core=(root/'core_main.py').read_text()
+          assert 'updater.prepare_install' in main and 'updater.install_latest' not in main
+          assert 'utilities/install_plugin' in js
+          assert 'function DeckyShareBrandIcon' in js and 'data:image/png;base64' not in js
+          assert 'from decky_http_server import BaseHTTPRequestHandler, ThreadingHTTPServer' in core
+          assert 'def prepare_install(' in updater
+          print('RC5 source validation passed')
+          PY
+
+          cd package
+          zip -qr ../DeckyShare-v1.1.0-rc.5.zip DeckyShare
+          cd ..
+
+      - name: Validate RC5 ZIP
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, zipfile
+          p='DeckyShare-v1.1.0-rc.5.zip'
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              names=set(z.namelist())
+              for req in ('DeckyShare/main.py','DeckyShare/core_main.py','DeckyShare/decky_http_server.py','DeckyShare/plugin.json','DeckyShare/package.json','DeckyShare/dist/index.js','DeckyShare/updater.py'):
+                  assert req in names, req
+              assert json.loads(z.read('DeckyShare/package.json'))['version']=='1.1.0-rc.5'
+          print('RC5 ZIP validation passed')
+          PY
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0-rc.5 >/dev/null 2>&1; then
+            echo 'v1.1.0-rc.5 already exists; leaving it unchanged.'
+            exit 0
+          fi
+          gh release create v1.1.0-rc.5 DeckyShare-v1.1.0-rc.5.zip \
+            --prerelease \
+            --target v1.1.0-rc5-release \
+            --title 'DeckyShare v1.1.0-rc.5' \
+            --notes 'RC5 keeps the Decky 3.2.9 backend compatibility/startup hardening and replaces the colorful icon with a native-looking monochrome satellite-transfer icon. Updates continue through Decky Loader’s native installer. Hardware-test prerelease; not the public stable release.'
