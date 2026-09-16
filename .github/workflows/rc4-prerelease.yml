@@ -1,0 +1,99 @@
+name: Publish DeckyShare RC4 prerelease
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc4-release
+    paths:
+      - .github/workflows/rc4-prerelease.yml
+      - main.py
+      - updater.py
+      - rc1_hardening.py
+      - package.json
+      - dist/index.js
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC4 branch
+        uses: actions/checkout@v4
+
+      - name: Validate runtime sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          for p in Path('.').rglob('*.py'):
+              if '.git' not in p.parts:
+                  compile(p.read_text(encoding='utf-8'), str(p), 'exec')
+          pkg=json.loads(Path('package.json').read_text())
+          assert pkg['version']=='1.1.0-rc.4'
+          main=Path('main.py').read_text()
+          assert 'prepare_install' in main
+          assert 'install_latest' not in main
+          js=Path('dist/index.js').read_text()
+          assert 'utilities/install_plugin' in js
+          assert 'DECKYSHARE_ICON' in js
+          print('RC4 source validation passed')
+          PY
+          node --check dist/index.js
+
+      - name: Build installable DeckyShare ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf package
+          mkdir -p package/DeckyShare
+          rsync -a ./ package/DeckyShare/ \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'tests' \
+            --exclude 'tools' \
+            --exclude 'RELEASE_CHECKLIST.md'
+          cd package
+          zip -qr ../DeckyShare-v1.1.0-rc.4.zip DeckyShare
+
+      - name: Validate package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          p=Path('DeckyShare-v1.1.0-rc.4.zip')
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              names=set(z.namelist())
+              for required in ('DeckyShare/main.py','DeckyShare/plugin.json','DeckyShare/package.json','DeckyShare/dist/index.js','DeckyShare/updater.py'):
+                  assert required in names
+              package=json.loads(z.read('DeckyShare/package.json'))
+              plugin=json.loads(z.read('DeckyShare/plugin.json'))
+              assert package['version']=='1.1.0-rc.4'
+              assert plugin['name']=='DeckyShare'
+              assert b'prepare_install' in z.read('DeckyShare/main.py')
+              assert b'utilities/install_plugin' in z.read('DeckyShare/dist/index.js')
+          print('RC4 ZIP validation passed')
+          PY
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0-rc.4 >/dev/null 2>&1; then
+            echo 'v1.1.0-rc.4 already exists; leaving it unchanged.'
+            exit 0
+          fi
+          gh release create v1.1.0-rc.4 DeckyShare-v1.1.0-rc.4.zip \
+            --prerelease \
+            --target v1.1.0-rc4-release \
+            --title 'DeckyShare v1.1.0-rc.4' \
+            --notes 'Recovery prerelease after RC3 startup regression. Restores the hardware-confirmed Decky Loader native installer bridge and adds the custom satellite-transfer icon. RC/dev builds continue to follow prerelease updates.'
