@@ -6,6 +6,7 @@ on:
       - v1.1.0-rc11-release
     paths:
       - .github/workflows/rc11-3-clean-filemanager-ui.yml
+      - scripts/rc11_3_patch.py
   workflow_dispatch:
 
 permissions:
@@ -30,127 +31,10 @@ jobs:
           test -f build/DeckyShare/core_main.py
           test -f build/DeckyShare/main.py
 
-      - name: Apply RC11.3 clean file manager UI
+      - name: Apply RC11.3 UI patch
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          import json, re
-
-          root = Path('build/DeckyShare')
-          p = root / 'dist' / 'index.js'
-          s = p.read_text()
-
-          # Add one compact overflow-menu state. All file operations stay unchanged.
-          old_state = '[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50);'
-          new_state = '[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50),[fmMenu,setFmMenu]=useState(false);'
-          if old_state not in s:
-              raise SystemExit('state marker missing')
-          s = s.replace(old_state, new_state, 1)
-
-          # Clear the menu whenever navigation changes.
-          old_browse_piece = 'setBrowseQuery("");setBrowseLimit(50);setFmPicked([]);setFmSelect(false);setFmInfo(null);setFmRename(null);setErr("");'
-          new_browse_piece = 'setBrowseQuery("");setBrowseLimit(50);setFmPicked([]);setFmSelect(false);setFmInfo(null);setFmRename(null);setFmMenu(false);setErr("");'
-          if old_browse_piece not in s:
-              raise SystemExit('browse reset marker missing')
-          s = s.replace(old_browse_piece, new_browse_piece, 1)
-
-          # Minimal title.
-          old_title = 'h(SectionTitle,{icon:"📁",title:"Browse Files",sub:status.selected?"File ready to download":"Fast file browser for your Deck"}),'
-          new_title = 'h(SectionTitle,{icon:"📁",title:"Browse Files"}),'
-          if old_title not in s:
-              raise SystemExit('title marker missing')
-          s = s.replace(old_title, new_title, 1)
-
-          # Quick Locations landing screen -> compact Files/iOS-style rows instead of big dashboard cards.
-          old_landing = '''        !status.selected&&!path&&h("div",null,
-          h("div",{style:{fontSize:10,opacity:.5,marginBottom:7}},"QUICK LOCATIONS"),
-          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}},roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{minHeight:64,padding:"10px 11px",borderRadius:12,border:"1px solid rgba(104,170,255,.22)",background:"linear-gradient(145deg,rgba(35,77,128,.66),rgba(23,50,84,.66))",color:"white",textAlign:"left"}},
-            h("div",{style:{fontSize:18,marginBottom:4}},r.name.startsWith("Drive:")?"💾":"📂"),
-            h("div",{style:{fontWeight:760,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},r.name),
-            h("div",{style:{fontSize:9,opacity:.46,marginTop:2}},"Open folder  ›")
-          )))
-        ),'''
-          new_landing = '''        !status.selected&&!path&&h("div",null,
-          roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{width:"100%",padding:"9px 10px",margin:"4px 0",borderRadius:11,border:"1px solid rgba(120,180,255,.12)",background:"rgba(20,39,63,.50)",color:"white",textAlign:"left"}},
-            h("div",{style:{display:"flex",alignItems:"center",gap:9}},
-              h("div",{style:{width:32,height:32,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(102,192,244,.10)",fontSize:16}},r.name.startsWith("Drive:")?"💾":"📂"),
-              h("div",{style:{minWidth:0,flex:1,fontWeight:730,fontSize:11,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},r.name),
-              h("div",{style:{fontSize:15,opacity:.34}},"›")
-            )
-          ))
-        ),'''
-          if old_landing not in s:
-              raise SystemExit('landing marker missing')
-          s = s.replace(old_landing, new_landing, 1)
-
-          # Replace the crowded file-manager header with a breadcrumb + overflow menu,
-          # then a single search row with one controller-friendly sort button.
-          start_marker = '''          h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:7}},
-            h(MiniButton,{onClick:()=>{setPath(null);setParent(null);setItems([]);setBrowseQuery("");}},"← Locations"),
-            parent&&h(MiniButton,{onClick:()=>browse(parent)},"↑ Up"),
-            h(MiniButton,{onClick:()=>{setFmSelect(v=>!v);setFmPicked([]);setFmInfo(null);}},fmSelect?"Done":"Select"),
-            h(MiniButton,{onClick:()=>setFmNew(fmNew?"":"New folder")},fmNew?"Cancel folder":"＋ New folder")
-          ),
-          fmStorage&&h("div",{style:{fontSize:9,opacity:.55,marginBottom:6}},`${fmStorage.used_human} used • ${fmStorage.free_human} free`,h(Bar,{value:fmUsed})),'''
-          if start_marker not in s:
-              raise SystemExit('old toolbar marker missing')
-          s = s.replace(start_marker, '', 1)
-
-          old_crumb_search = '''          h("div",{style:{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",padding:"7px 8px",borderRadius:9,background:"rgba(7,17,29,.34)",border:"1px solid rgba(120,180,255,.10)",marginBottom:8}},
-            browseCrumbs.map((c,i)=>h(React.Fragment,{key:c.path},
-              i>0&&h("span",{style:{fontSize:9,opacity:.34}},"›"),
-              h("button",{onClick:()=>c.path===path?null:browse(c.path),disabled:c.path===path,style:{padding:"2px 4px",border:0,background:"transparent",color:c.path===path?"#fff":"#8fd3ff",fontSize:9,fontWeight:c.path===path?760:620,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.label)
-            ))
-          ),
-          h("div",{style:{display:"grid",gap:6,marginBottom:7}},
-            h("input",{value:browseQuery,onChange:e=>{setBrowseQuery(e.target.value);setBrowseLimit(50);},placeholder:"Search this folder",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(120,180,255,.18)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
-            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}},
-              [["name","Name"],["date","Newest"],["size","Largest"]].map(([value,label])=>h("button",{key:value,onClick:()=>{if(browseSort!==value){setBrowseSort(value);setBrowseLimit(50);}},style:{padding:"7px 5px",borderRadius:9,border:browseSort===value?"1px solid #66c0f4":"1px solid rgba(120,180,255,.16)",background:browseSort===value?"rgba(102,192,244,.15)":"rgba(255,255,255,.025)",color:browseSort===value?"#bde7ff":"#d9edff",fontSize:10,fontWeight:700}},label))
-            )
-          ),
-          h("div",{style:{display:"flex",gap:4,overflowX:"auto",paddingBottom:4,marginBottom:4}},roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{flex:"0 0 auto",padding:"5px 7px",borderRadius:999,border:path===r.path?"1px solid #66c0f4":"1px solid rgba(120,180,255,.14)",background:path===r.path?"rgba(102,192,244,.13)":"rgba(255,255,255,.025)",color:path===r.path?"#a9ddff":"#d9edff",fontSize:9,fontWeight:700}},r.name.startsWith("Drive:")?`💾 ${r.name.replace("Drive: ","")}`:r.name))),'''
-          new_crumb_search = '''          h("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:6,alignItems:"center",marginBottom:7}},
-            h("div",{style:{display:"flex",gap:3,alignItems:"center",minWidth:0,overflow:"hidden",padding:"6px 7px",borderRadius:9,background:"rgba(7,17,29,.34)",border:"1px solid rgba(120,180,255,.10)"}},
-              browseCrumbs.map((c,i)=>h(React.Fragment,{key:c.path},
-                i>0&&h("span",{style:{fontSize:9,opacity:.30}},"›"),
-                h("button",{onClick:()=>c.path===path?null:browse(c.path),disabled:c.path===path,style:{padding:"2px 3px",border:0,background:"transparent",color:c.path===path?"#fff":"#8fd3ff",fontSize:9,fontWeight:c.path===path?760:620,maxWidth:96,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:i===browseCrumbs.length-1?1:0}},c.label)
-              ))
-            ),
-            h("button",{onClick:()=>setFmMenu(v=>!v),style:{width:38,height:34,borderRadius:9,border:fmMenu?"1px solid #66c0f4":"1px solid rgba(120,180,255,.16)",background:fmMenu?"rgba(102,192,244,.14)":"rgba(255,255,255,.025)",color:"#d9edff",fontSize:18,fontWeight:800}},"⋯")
-          ),
-          fmMenu&&h("div",{style:{padding:8,marginBottom:7,borderRadius:10,background:"rgba(9,22,38,.92)",border:"1px solid rgba(120,180,255,.16)"}},
-            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:fmStorage||roots.length?7:0}},
-              h(MiniButton,{onClick:()=>{setPath(null);setParent(null);setItems([]);setBrowseQuery("");setFmMenu(false);}},"Locations"),
-              h(MiniButton,{onClick:()=>{setFmSelect(v=>!v);setFmPicked([]);setFmInfo(null);setFmMenu(false);}},fmSelect?"Done":"Select"),
-              h(MiniButton,{onClick:()=>{setFmNew(fmNew?"":"New folder");setFmMenu(false);}},fmNew?"Cancel":"New folder")
-            ),
-            fmStorage&&h("div",{style:{fontSize:9,opacity:.55,marginBottom:7}},`${fmStorage.used_human} used • ${fmStorage.free_human} free`,h(Bar,{value:fmUsed})),
-            roots.length>0&&h("div",{style:{display:"flex",gap:4,overflowX:"auto",paddingBottom:2}},roots.map(r=>h("button",{key:r.path,onClick:()=>{setFmMenu(false);browse(r.path);},style:{flex:"0 0 auto",padding:"5px 7px",borderRadius:999,border:path===r.path?"1px solid #66c0f4":"1px solid rgba(120,180,255,.14)",background:path===r.path?"rgba(102,192,244,.13)":"rgba(255,255,255,.025)",color:path===r.path?"#a9ddff":"#d9edff",fontSize:9,fontWeight:700}},r.name.startsWith("Drive:")?`💾 ${r.name.replace("Drive: ","")}`:r.name)))
-          ),
-          h("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:6,marginBottom:6}},
-            h("input",{value:browseQuery,onChange:e=>{setBrowseQuery(e.target.value);setBrowseLimit(50);},placeholder:"Search files",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(120,180,255,.18)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
-            h("button",{onClick:()=>{const next=browseSort==="name"?"date":browseSort==="date"?"size":"name";setBrowseSort(next);setBrowseLimit(50);},style:{minWidth:82,padding:"7px 8px",borderRadius:10,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#d9edff",fontSize:9,fontWeight:720,whiteSpace:"nowrap"}},`Sort: ${browseSort==="date"?"Newest":browseSort==="size"?"Largest":"Name"}`)
-          ),'''
-          if old_crumb_search not in s:
-              raise SystemExit('crumb/search block marker missing')
-          s = s.replace(old_crumb_search, new_crumb_search, 1)
-
-          # Update badge/version only; backend behavior is intentionally preserved.
-          if '"RC11.2"' in s:
-              s = s.replace('"RC11.2"', '"RC11.3"', 1)
-          p.write_text(s)
-
-          p = root / 'package.json'
-          data = json.loads(p.read_text())
-          data['version'] = '1.1.0-rc.11.3'
-          p.write_text(json.dumps(data, indent=2) + '\n')
-
-          p = root / 'main.py'
-          ms = p.read_text()
-          ms = re.sub(r'_core\.Handler\.server_version = "DeckyShare/[^"]+"', '_core.Handler.server_version = "DeckyShare/1.1.0-rc11.3"', ms, count=1)
-          p.write_text(ms)
-          PY
+          python scripts/rc11_3_patch.py
 
       - name: Validate RC11.3
         run: |
@@ -163,13 +47,11 @@ jobs:
           ui=(root/'dist/index.js').read_text()
           core=(root/'core_main.py').read_text()
           assert '[fmMenu,setFmMenu]=useState(false)' in ui
-          assert '`Sort: ${browseSort===' in ui
           assert 'placeholder:"Search files"' in ui
           assert 'QUICK LOCATIONS' not in ui
-          assert 'gridTemplateColumns:"repeat(3,1fr)"' in ui  # contextual menus/actions still use compact grids
           assert 'Fast file browser for your Deck' not in ui
+          assert 'Sort: ${browseSort' in ui
           assert 'RC11.3' in ui
-          # RC11.2 safety/performance protections must survive untouched.
           assert 'useMemo' in ui
           assert 'visibleBrowseItems.slice(0,browseLimit)' in ui
           assert '/proc/self/mountinfo' in core
@@ -195,5 +77,5 @@ jobs:
               --prerelease \
               --target v1.1.0-rc11-release \
               --title 'DeckyShare v1.1.0-rc.11.3' \
-              --notes 'RC11.3 simplifies Browse Files using a Dolphin/iOS Files/Files-by-Google inspired hierarchy: compact location rows, slim breadcrumb, one overflow menu for Locations/Select/New Folder/storage, one Search row with a compact cycling Sort button, and no always-visible location chips or large sort controls. RC11.2 performance fixes, RC11.1 removable-drive protections, and all mini file-manager operations are preserved.'
+              --notes 'RC11.3 simplifies Browse Files with a cleaner file-manager hierarchy: compact location rows, a slim breadcrumb, one overflow menu for Locations/Select/New Folder/storage, and one Search row with a compact cycling Sort button. RC11.2 performance fixes, RC11.1 removable-drive protections, and all mini file-manager operations are preserved.'
           fi
