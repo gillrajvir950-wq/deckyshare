@@ -24,9 +24,13 @@ jobs:
           gh release download v1.1.0-rc.9 --pattern 'DeckyShare-v1.1.0-rc.9.zip' --dir .
           unzip -q DeckyShare-v1.1.0-rc.9.zip -d build
           test -f build/DeckyShare/dist/index.js
-      - name: Upload UI source
+          test -f build/DeckyShare/core_main.py
+      - name: Upload inspection source
         uses: actions/upload-artifact@v4
         with:
-          name: rc9-ui-source
-          path: build/DeckyShare/dist/index.js
+          name: rc9-inspection-source
+          path: |
+            build/DeckyShare/dist/index.js
+            build/DeckyShare/core_main.py
+            build/DeckyShare/package.json
           retention-days: 1
