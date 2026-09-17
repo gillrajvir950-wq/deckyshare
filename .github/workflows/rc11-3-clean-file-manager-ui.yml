@@ -1,0 +1,65 @@
+name: Publish DeckyShare RC11.3 clean file manager UI
+on:
+  push:
+    branches: [v1.1.0-rc11-release]
+    paths: [.github/workflows/rc11-3-clean-file-manager-ui.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact RC11.2 baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build DeckyShare-v1.1.0-rc.11.2.zip DeckyShare-v1.1.0-rc.11.3.zip
+          mkdir build
+          gh release download v1.1.0-rc.11.2 --pattern 'DeckyShare-v1.1.0-rc.11.2.zip'
+          unzip -q DeckyShare-v1.1.0-rc.11.2.zip -d build
+      - name: Simplify Browse Files UI
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json,re
+          root=Path('build/DeckyShare'); p=root/'dist/index.js'; s=p.read_text()
+          # Compact header controls: hide always-visible storage meter and quick-location chip row.
+          s=re.sub(r'fmStorage&&h\("div",\{style:\{marginBottom:8\}\},.*?\),\n\s*h\("div",\{style:\{display:"flex",gap:5,flexWrap:"wrap",marginBottom:7\}\},\n\s*\(locations\|\|\[\]\)\.map\(loc=>h\("button",\{key:loc\.path,onClick:\(\)=>browse\(loc\.path\).*?\)\)\),', '', s, count=1, flags=re.S)
+          # Replace the three large sort buttons with a compact cycling sort control.
+          sort_pat=r'h\("div",\{style:\{display:"grid",gridTemplateColumns:"repeat\(3,1fr\)",gap:5,marginBottom:7\}\},\[\["name","Name"\],\["date","Newest"\],\["size","Largest"\]\]\.map\(\(\[value,label\]\)=>h\("button",\{key:value,onClick:\(\)=>\{if\(browseSort!==value\)\{setBrowseSort\(value\);setBrowseLimit\(50\);\}\},style:\{.*?\}\},label\)\)\),'
+          repl='h("div",{style:{display:"flex",gap:6,marginBottom:7}},h("button",{onClick:()=>{const modes=["name","date","size"];const next=modes[(modes.indexOf(browseSort)+1)%modes.length];setBrowseSort(next);setBrowseLimit(50);},style:{marginLeft:"auto",padding:"7px 10px",borderRadius:9,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#bde7ff",fontSize:10,fontWeight:700}},`Sort: ${browseSort==="date"?"Newest":browseSort==="size"?"Largest":"Name"} ▾`)),'
+          ns,n=re.subn(sort_pat,repl,s,count=1,flags=re.S)
+          if n!=1: raise SystemExit('sort UI marker missing')
+          s=ns
+          # Make New Folder compact and keep advanced actions selection-driven.
+          s=s.replace('"+ New folder"','"+"',1)
+          s=s.replace('"RC11.2"','"RC11.3"',1)
+          p.write_text(s)
+          pkg=root/'package.json'; d=json.loads(pkg.read_text()); d['version']='1.1.0-rc.11.3'; pkg.write_text(json.dumps(d,indent=2)+'\n')
+          mp=root/'main.py'; ms=mp.read_text(); ms=re.sub(r'_core\.Handler\.server_version = "DeckyShare/[^"]+"','_core.Handler.server_version = "DeckyShare/1.1.0-rc11.3"',ms,count=1); mp.write_text(ms)
+          PY
+      - name: Validate and package
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import pathlib,json
+          r=pathlib.Path('build/DeckyShare'); ui=(r/'dist/index.js').read_text()
+          assert json.loads((r/'package.json').read_text())['version']=='1.1.0-rc.11.3'
+          assert 'Sort: ${browseSort' in ui and 'RC11.3' in ui
+          assert 'visibleBrowseItems.slice(0,browseLimit)' in ui
+          assert 'Show 50 more' in ui
+          assert 'fm_copy' in ui and 'fm_move' in ui and 'fm_trash' in ui
+          for f in r.rglob('*.py'): compile(f.read_text(),str(f),'exec')
+          print('RC11.3 clean UI checks passed')
+          PY
+          cd build && zip -qr ../DeckyShare-v1.1.0-rc.11.3.zip DeckyShare
+      - name: Publish RC11.3 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create v1.1.0-rc.11.3 DeckyShare-v1.1.0-rc.11.3.zip --prerelease --target v1.1.0-rc11-release --title 'DeckyShare v1.1.0-rc.11.3' --notes 'Clean mini file-manager UI experiment based on RC11.2: less dashboard clutter, compact sort control, compact new-folder action, while preserving the RC11 mini file-manager backend/actions and RC11.2 performance protections.'
