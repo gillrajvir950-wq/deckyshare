@@ -1,0 +1,181 @@
+name: Publish DeckyShare RC9 UI cleanup prerelease
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc9-release
+    paths:
+      - .github/workflows/rc9-ui-cleanup.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC9 branch
+        uses: actions/checkout@v4
+
+      - name: Download exact RC8 baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build DeckyShare-v1.1.0-rc.8.zip DeckyShare-v1.1.0-rc.9.zip
+          mkdir build
+          gh release download v1.1.0-rc.8 --pattern 'DeckyShare-v1.1.0-rc.8.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.8.zip -d build
+          test -f build/DeckyShare/main.py
+          test -f build/DeckyShare/core_main.py
+          test -f build/DeckyShare/share_sheet.py
+          test -f build/DeckyShare/dist/index.js
+
+      - name: Apply RC9 UI cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          root = Path('build/DeckyShare')
+
+          p = root / 'package.json'
+          data = json.loads(p.read_text())
+          data['version'] = '1.1.0-rc.9'
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          p = root / 'dist' / 'index.js'
+          s = p.read_text()
+
+          # Remove the iPhone Share Sheet / Shortcut card from the main panel.
+          starts = [
+              '      h(Card,{style:{border:"1px solid rgba(120,180,255,.22)"}},\n        h(SectionTitle,{icon:"📱",title:"iPhone Shortcut"',
+              '      h(Card,{style:{border:"1px solid rgba(120,180,255,.22)"}},\n        h(SectionTitle,{icon:"📲",title:"iPhone Share Sheet"',
+          ]
+          browse = '      h(Card,null,\n        h(SectionTitle,{icon:"📁",title:"Browse Files"'
+          removed = 0
+          for marker in starts:
+              start = s.find(marker)
+              if start >= 0:
+                  end = s.find(browse, start)
+                  if end < 0:
+                      raise SystemExit('Browse Files marker missing while removing iPhone card')
+                  s = s[:start] + s[end:]
+                  removed += 1
+                  break
+          if removed != 1:
+              raise SystemExit('Expected one iPhone card to remove from RC8')
+
+          # Compact the header badge.
+          long_badges = (
+              'v1.1.0-rc8 • iPhone Share Sheet',
+              'v1.1.0-rc8 • iPhone Shortcut',
+              'v1.1.0-rc8 • Decky 3.2.9',
+              'v1.1.0-rc8',
+          )
+          badge_changed = False
+          for old in long_badges:
+              if old in s:
+                  s = s.replace(old, 'RC9', 1)
+                  badge_changed = True
+                  break
+          if not badge_changed:
+              raise SystemExit('RC8 header badge text not found')
+          s = s.replace('fontSize:9,fontWeight:800,padding:"2px 6px"', 'fontSize:8,fontWeight:800,padding:"1px 5px"', 1)
+
+          # Replace the satellite with a simple native-style two-device transfer icon.
+          icon = '''function DeckyShareBrandIcon({size=24}){\n  return h("svg",{viewBox:"0 0 24 24",width:size,height:size,fill:"none",stroke:"currentColor",strokeWidth:2.05,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true",style:{display:"block",color:"currentColor",flexShrink:0}},\n    h("rect",{x:"3.5",y:"5.5",width:"5",height:"13",rx:"1.4"}),\n    h("rect",{x:"15.5",y:"5.5",width:"5",height:"13",rx:"1.4"}),\n    h("path",{d:"M9.7 9h4.5"}),\n    h("path",{d:"m12.6 7.4 1.6 1.6-1.6 1.6"}),\n    h("path",{d:"M14.3 15H9.8"}),\n    h("path",{d:"m11.4 13.4-1.6 1.6 1.6 1.6"}),\n    h("path",{d:"M5.5 16.2h1"}),\n    h("path",{d:"M17.5 16.2h1"})\n  );\n}'''
+          pat = re.compile(r'function DeckyShareBrandIcon\(\{size=24\}\)\{.*?\n\}', re.S)
+          s, n = pat.subn(icon, s, count=1)
+          if n != 1:
+              raise SystemExit('DeckyShareBrandIcon function missing')
+
+          # Clean up any leftover old visible badge text.
+          s = s.replace('v1.1.0-rc8 • iPhone Share Sheet', 'RC9')
+          s = s.replace('v1.1.0-rc8 • iPhone Shortcut', 'RC9')
+          p.write_text(s)
+
+          p = root / 'main.py'
+          s = p.read_text()
+          s = re.sub(
+              r'_core\.Handler\.server_version = "DeckyShare/[^"]+"',
+              '_core.Handler.server_version = "DeckyShare/1.1.0-rc9"',
+              s,
+              count=1,
+          )
+          p.write_text(s)
+
+          p = root / 'rc1_hardening.py'
+          if p.exists():
+              s = p.read_text().replace('v1.1.0-rc8', 'v1.1.0-rc9')
+              p.write_text(s)
+          PY
+
+      - name: Validate RC9 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          root = Path('build/DeckyShare')
+          pkg = json.loads((root / 'package.json').read_text())
+          js = (root / 'dist' / 'index.js').read_text()
+          core = (root / 'core_main.py').read_text()
+          share = (root / 'share_sheet.py').read_text()
+          main = (root / 'main.py').read_text()
+
+          assert pkg['version'] == '1.1.0-rc.9'
+          assert 'title:"iPhone Share Sheet"' not in js
+          assert 'title:"iPhone Shortcut"' not in js
+          assert '"RC9"' in js
+          assert 'v1.1.0-rc8 • iPhone Share Sheet' not in js
+          assert 'function DeckyShareBrandIcon' in js
+          assert 'M5.5 12.5a7 7 0 0 0 6 6l4-4' not in js
+          assert 'x:"3.5",y:"5.5",width:"5",height:"13"' in js
+          assert '/shortcut/share' in core
+          assert '/shortcut/pair' in core
+          assert 'PAIRING_TTL_SECONDS = 10 * 60' in share
+          assert 'DeckyShare/1.1.0-rc9' in main
+
+          for p in root.rglob('*.py'):
+              compile(p.read_text(encoding='utf-8'), str(p), 'exec')
+          subprocess.run(['node', '--check', str(root / 'dist' / 'index.js')], check=True)
+          print('RC9 validation passed: iPhone card removed, compact badge, new transfer icon')
+          PY
+
+          cd build
+          zip -qr ../DeckyShare-v1.1.0-rc.9.zip DeckyShare
+          cd ..
+
+          python - <<'PY'
+          import zipfile
+          p='DeckyShare-v1.1.0-rc.9.zip'
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              names=set(z.namelist())
+              for req in ('DeckyShare/main.py','DeckyShare/core_main.py','DeckyShare/share_sheet.py','DeckyShare/dist/index.js','DeckyShare/updater.py'):
+                  assert req in names, req
+          print('RC9 ZIP validation passed')
+          PY
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0-rc.9 >/dev/null 2>&1; then
+            echo 'v1.1.0-rc.9 already exists; leaving it unchanged.'
+            exit 0
+          fi
+          gh release create v1.1.0-rc.9 DeckyShare-v1.1.0-rc.9.zip \
+            --prerelease \
+            --target v1.1.0-rc9-release \
+            --title 'DeckyShare v1.1.0-rc.9' \
+            --notes 'RC9 is a focused UI cleanup built directly from RC8: removes the iPhone Share Sheet/Shortcut card from the main panel, replaces the oversized header version text with a compact RC9 badge, and replaces the satellite icon with a clearer monochrome two-device transfer icon. The working Share Sheet receive and pairing backend remain intact.'
