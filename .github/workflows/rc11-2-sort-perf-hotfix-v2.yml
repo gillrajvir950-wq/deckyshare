@@ -1,0 +1,150 @@
+name: Publish DeckyShare RC11.2 sort performance hotfix v2
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc11-release
+    paths:
+      - .github/workflows/rc11-2-sort-perf-hotfix-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download exact RC11.1 baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build DeckyShare-v1.1.0-rc.11.1.zip DeckyShare-v1.1.0-rc.11.2.zip
+          mkdir build
+          gh release download v1.1.0-rc.11.1 --pattern 'DeckyShare-v1.1.0-rc.11.1.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.11.1.zip -d build
+          test -f build/DeckyShare/dist/index.js
+          test -f build/DeckyShare/core_main.py
+          test -f build/DeckyShare/main.py
+
+      - name: Apply RC11.2 sort performance fixes
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          root = Path('build/DeckyShare')
+          p = root / 'dist' / 'index.js'
+          s = p.read_text()
+
+          s = s.replace('const { useEffect, useRef, useState } = React;', 'const { useEffect, useMemo, useRef, useState } = React;', 1)
+
+          old_date = '''function browseDate(ts){\n  const n=Number(ts||0);\n  if(!n)return "";\n  try{return new Date(n*1000).toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});}catch(e){return "";}\n}'''
+          new_date = '''function browseDate(ts){\n  const n=Number(ts||0);\n  if(!Number.isFinite(n)||n<=0)return "";\n  try{return new Date(n*1000).toISOString().slice(0,10);}catch(e){return "";}\n}'''
+          if old_date not in s: raise SystemExit('browseDate marker missing')
+          s = s.replace(old_date, new_date, 1)
+
+          old_sort = '''function browseVisibleItems(items,query,sortMode){\n  const q=String(query||"").trim().toLowerCase();\n  const list=(items||[]).filter(it=>!q||String(it.name||"").toLowerCase().includes(q));\n  return list.slice().sort((a,b)=>{\n    if(a.type!==b.type)return a.type==="dir"?-1:1;\n    let v=0;\n    if(sortMode==="date")v=Number(b.mtime||0)-Number(a.mtime||0);\n    else if(sortMode==="size")v=Number(b.size||0)-Number(a.size||0);\n    if(v)return v;\n    return String(a.name||"").localeCompare(String(b.name||""),undefined,{numeric:true,sensitivity:"base"});\n  });\n}'''
+          new_sort = '''function browseVisibleItems(items,query,sortMode){\n  const q=String(query||"").trim().toLowerCase();\n  const list=[];\n  for(const it of (items||[])){\n    const name=String(it&&it.name||"");\n    const lower=name.toLowerCase();\n    if(q&&!lower.includes(q))continue;\n    list.push({it,lower,mtime:Number(it&&it.mtime)||0,size:Number(it&&it.size)||0});\n  }\n  list.sort((a,b)=>{\n    if(a.it.type!==b.it.type)return a.it.type==="dir"?-1:1;\n    if(sortMode==="date"&&a.mtime!==b.mtime)return b.mtime-a.mtime;\n    if(sortMode==="size"&&a.size!==b.size)return b.size-a.size;\n    if(a.lower<b.lower)return -1;\n    if(a.lower>b.lower)return 1;\n    return 0;\n  });\n  return list.map(x=>x.it);\n}'''
+          if old_sort not in s: raise SystemExit('browseVisibleItems marker missing')
+          s = s.replace(old_sort, new_sort, 1)
+
+          old_state_tail = '[fmTrashArmed,setFmTrashArmed]=useState(false);'
+          new_state_tail = '[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50);'
+          if old_state_tail not in s: raise SystemExit('state tail marker missing')
+          s = s.replace(old_state_tail, new_state_tail, 1)
+
+          old_browse = 'async function browse(p){try{const j=await call("browse",{path:p});setPath(j.path);setParent(j.parent);setItems(j.items||[]);setFmStorage(j.storage||null);setBrowseQuery("");setFmPicked([]);setFmSelect(false);setFmInfo(null);setFmRename(null);setErr("");}catch(e){setErr("Browse: "+String(e&&e.message||e));}}'
+          new_browse = 'async function browse(p){try{const j=await call("browse",{path:p});setPath(j.path);setParent(j.parent);setItems(j.items||[]);setFmStorage(j.storage||null);setBrowseQuery("");setBrowseLimit(50);setFmPicked([]);setFmSelect(false);setFmInfo(null);setFmRename(null);setErr("");}catch(e){setErr("Browse: "+String(e&&e.message||e));}}'
+          if old_browse not in s: raise SystemExit('browse function marker missing')
+          s = s.replace(old_browse, new_browse, 1)
+
+          old_poll = 'useEffect(()=>{if(!status)return;const t=setInterval(refreshStatus,1000);return()=>clearInterval(t);},[!!status]);'
+          new_poll = 'useEffect(()=>{if(!status)return;const t=setInterval(refreshStatus,path?4000:1500);return()=>clearInterval(t);},[!!status,!!path]);'
+          if old_poll not in s: raise SystemExit('status poll marker missing')
+          s = s.replace(old_poll, new_poll, 1)
+
+          old_visible = 'const visibleBrowseItems=path?browseVisibleItems(items,browseQuery,browseSort):[];\n    const fmChosen=items.filter(x=>fmPicked.includes(x.path));'
+          new_visible = 'const visibleBrowseItems=useMemo(()=>path?browseVisibleItems(items,browseQuery,browseSort):[],[path,items,browseQuery,browseSort]);\n    const fmChosen=useMemo(()=>items.filter(x=>fmPicked.includes(x.path)),[items,fmPicked]);'
+          if old_visible not in s: raise SystemExit('visible list marker missing')
+          s = s.replace(old_visible, new_visible, 1)
+
+          old_search = 'h("input",{value:browseQuery,onChange:e=>setBrowseQuery(e.target.value),placeholder:"Search this folder"'
+          new_search = 'h("input",{value:browseQuery,onChange:e=>{setBrowseQuery(e.target.value);setBrowseLimit(50);},placeholder:"Search this folder"'
+          if old_search not in s: raise SystemExit('search marker missing')
+          s = s.replace(old_search, new_search, 1)
+
+          old_sort_button = 'onClick:()=>setBrowseSort(value),style:{padding:"7px 5px"'
+          new_sort_button = 'onClick:()=>{if(browseSort!==value){setBrowseSort(value);setBrowseLimit(50);}},style:{padding:"7px 5px"'
+          if old_sort_button not in s: raise SystemExit('sort button marker missing')
+          s = s.replace(old_sort_button, new_sort_button, 1)
+
+          if 'visibleBrowseItems.slice(0,150).map(' not in s: raise SystemExit('slice marker missing')
+          s = s.replace('visibleBrowseItems.slice(0,150).map(', 'visibleBrowseItems.slice(0,browseLimit).map(', 1)
+
+          old_more = 'visibleBrowseItems.length>150&&h("div",{style:{fontSize:9,opacity:.42,textAlign:"center",paddingTop:5}},`Showing first 150 of ${visibleBrowseItems.length} items`),'
+          new_more = 'visibleBrowseItems.length>browseLimit&&h("button",{onClick:()=>setBrowseLimit(x=>Math.min(x+50,visibleBrowseItems.length)),style:{width:"100%",padding:"8px",marginTop:6,borderRadius:9,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#bde7ff",fontSize:10,fontWeight:700}},`Show 50 more • ${browseLimit} of ${visibleBrowseItems.length}`),'
+          if old_more not in s: raise SystemExit('row cap marker missing')
+          s = s.replace(old_more, new_more, 1)
+
+          if '"RC11.1"' in s: s = s.replace('"RC11.1"', '"RC11.2"', 1)
+          p.write_text(s)
+
+          p = root / 'package.json'
+          data = json.loads(p.read_text())
+          data['version'] = '1.1.0-rc.11.2'
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          p = root / 'main.py'
+          ms = p.read_text()
+          ms = re.sub(r'_core\.Handler\.server_version = "DeckyShare/[^"]+"', '_core.Handler.server_version = "DeckyShare/1.1.0-rc11.2"', ms, count=1)
+          p.write_text(ms)
+          PY
+
+      - name: Validate RC11.2
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib
+          root=pathlib.Path('build/DeckyShare')
+          pkg=json.loads((root/'package.json').read_text())
+          assert pkg['version']=='1.1.0-rc.11.2'
+          ui=(root/'dist/index.js').read_text()
+          core=(root/'core_main.py').read_text()
+          assert 'const { useEffect, useMemo, useRef, useState } = React;' in ui
+          assert 'setBrowseLimit(50)' in ui
+          assert 'visibleBrowseItems.slice(0,browseLimit)' in ui
+          assert 'Show 50 more' in ui
+          assert 'path?4000:1500' in ui
+          assert 'toISOString().slice(0,10)' in ui
+          assert 'localeCompare' not in ui[ui.index('function browseVisibleItems'):ui.index('function Bar')]
+          assert '/proc/self/mountinfo' in core
+          assert 'await asyncio.wait_for(asyncio.to_thread(browse_info, p), timeout=3.0)' in core
+          assert 'RC11.2' in ui
+          for f in root.rglob('*.py'):
+              compile(f.read_text(encoding='utf-8'),str(f),'exec')
+          print('RC11.2 performance regression checks passed')
+          PY
+          cd build && zip -qr ../DeckyShare-v1.1.0-rc.11.2.zip DeckyShare && cd ..
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('DeckyShare-v1.1.0-rc.11.2.zip') as z:
+              assert z.testzip() is None
+          PY
+
+      - name: Publish RC11.2 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view v1.1.0-rc.11.2 >/dev/null 2>&1; then
+            gh release create v1.1.0-rc.11.2 DeckyShare-v1.1.0-rc.11.2.zip \
+              --prerelease \
+              --target v1.1.0-rc11-release \
+              --title 'DeckyShare v1.1.0-rc.11.2' \
+              --notes 'RC11.2 addresses the Browse Files Name/Newest/Largest freeze/hitch seen on Steam Deck hardware. Sorting is memoized and cheaper, file rows render 50 at a time with Show More, date formatting is lighter, and background status polling is reduced while browsing. RC11.1 removable-drive hang protections and all RC11 file-manager actions are preserved.'
+          fi
