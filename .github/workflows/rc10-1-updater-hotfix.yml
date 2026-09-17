@@ -92,7 +92,7 @@ jobs:
           d = tempfile.TemporaryDirectory()
           plug = pathlib.Path(d.name)/'DeckyShare'; plug.mkdir()
           (plug/'package.json').write_text(json.dumps({'version':'1.1.0-rc.9'}))
-          u = mod.Updater(plug)
+          u = mod.UpdateManager(plug, pathlib.Path(d.name))
           picked = u._fetch_release(include_prerelease=True)
           assert picked['version'] == '1.1.0-rc.10.1', picked
           print('RC10.1 updater ordering regression test passed')
