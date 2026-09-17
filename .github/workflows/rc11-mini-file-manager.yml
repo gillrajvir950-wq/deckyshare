@@ -6,6 +6,7 @@ on:
       - v1.1.0-rc11-release
     paths:
       - .github/workflows/rc11-mini-file-manager.yml
+      - tools/rc11_patch.py
   workflow_dispatch:
 
 permissions:
@@ -31,562 +32,59 @@ jobs:
           test -f build/DeckyShare/dist/index.js
           test -f build/DeckyShare/updater.py
 
-      - name: Add mini file manager backend and UI
+      - name: Apply RC11 mini file manager patch
+        run: |
+          set -euo pipefail
+          python tools/rc11_patch.py build/DeckyShare
+
+      - name: Validate RC11 package
         run: |
           set -euo pipefail
           python - <<'PY'
-          from pathlib import Path
-          import json, re
-
-          root = Path('build/DeckyShare')
-
-          # ---------- Backend ----------
-          p = root / 'core_main.py'
-          s = p.read_text()
-          if 'import shutil\n' not in s:
-              s = s.replace('import os\n', 'import os\nimport shutil\n', 1)
-
-          # A real file manager should show all ordinary files under allowed roots.
-          s = s.replace('elif child.is_file() and child.suffix.lower() in ALL_EXTS:', 'elif child.is_file():')
-
-          old_return = '    return {"path": str(p), "parent": parent, "items": items}\n\n\ndef qr_data_uri(address):'
-          if old_return not in s:
-              raise SystemExit('browse_info return marker missing')
-
-          fm_helpers = r'''    usage = shutil.disk_usage(p)
-    storage = {
-        "total": usage.total,
-        "used": usage.used,
-        "free": usage.free,
-        "total_human": human_size(usage.total),
-        "used_human": human_size(usage.used),
-        "free_human": human_size(usage.free),
-    }
-    return {"path": str(p), "parent": parent, "items": items, "storage": storage}
-
-
-def _fm_payload(payload=None, kwargs=None):
-    if isinstance(payload, dict):
-        return dict(payload)
-    return dict(kwargs or {})
-
-
-def _fm_path(raw, *, must_exist=True):
-    if raw is None or str(raw).strip() == "":
-        raise ValueError("Missing path")
-    original = Path(str(raw)).expanduser()
-    if original.is_symlink():
-        raise ValueError("Symbolic links are not managed by DeckyShare")
-    p = original.resolve()
-    if not path_allowed(p):
-        raise ValueError("Path is outside DeckyShare allowed locations")
-    if must_exist and not p.exists():
-        raise ValueError("Item not found")
-    return p
-
-
-def _fm_is_root(p):
-    p = Path(p).resolve()
-    return any(p == root for _, root in allowed_roots())
-
-
-def _fm_clean_name(value):
-    name = str(value or "").strip()
-    if not name or name in (".", "..") or Path(name).name != name or "/" in name or "\\" in name or "\x00" in name:
-        raise ValueError("Invalid name")
-    if len(name.encode("utf-8")) > 240:
-        raise ValueError("Name is too long")
-    return name
-
-
-def _fm_unique(parent, name, is_dir=False):
-    parent = Path(parent)
-    target = parent / name
-    if not target.exists():
-        return target
-    if is_dir:
-        stem, suffix = name, ""
-    else:
-        q = Path(name)
-        stem, suffix = q.stem or q.name, q.suffix
-    i = 1
-    while i < 10000:
-        candidate = parent / f"{stem} ({i}){suffix}"
-        if not candidate.exists():
-            return candidate
-        i += 1
-    raise ValueError("Could not find a free destination name")
-
-
-def _fm_entry(p):
-    p = Path(p)
-    st = p.stat()
-    is_dir = p.is_dir()
-    item = {
-        "name": p.name,
-        "path": str(p),
-        "type": "dir" if is_dir else "file",
-        "mtime": st.st_mtime,
-        "size": 0 if is_dir else st.st_size,
-        "size_human": "Folder" if is_dir else human_size(st.st_size),
-    }
-    if not is_dir:
-        item["mime"] = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
-    return item
-
-
-def _fm_create_folder(parent, name):
-    base = _fm_path(parent)
-    if not base.is_dir():
-        raise ValueError("Destination is not a folder")
-    clean = _fm_clean_name(name)
-    target = (base / clean).resolve()
-    if not path_allowed(target):
-        raise ValueError("Folder destination is not allowed")
-    if target.exists():
-        raise ValueError("An item with that name already exists")
-    target.mkdir()
-    return {"ok": True, "item": _fm_entry(target)}
-
-
-def _fm_rename(path, new_name):
-    source = _fm_path(path)
-    if _fm_is_root(source):
-        raise ValueError("Quick locations cannot be renamed")
-    clean = _fm_clean_name(new_name)
-    target = (source.parent / clean).resolve()
-    if not path_allowed(target):
-        raise ValueError("Rename destination is not allowed")
-    if target.exists():
-        raise ValueError("An item with that name already exists")
-    source.rename(target)
-    if STATE.selected and Path(STATE.selected).resolve() == source:
-        STATE.selected = target if target.is_file() else None
-    return {"ok": True, "item": _fm_entry(target)}
-
-
-def _fm_sources(paths):
-    if not isinstance(paths, list) or not paths:
-        raise ValueError("Select at least one item")
-    if len(paths) > 100:
-        raise ValueError("Too many items selected")
-    out = []
-    seen = set()
-    for raw in paths:
-        p = _fm_path(raw)
-        if _fm_is_root(p):
-            raise ValueError("Quick locations cannot be modified")
-        key = str(p)
-        if key not in seen:
-            seen.add(key)
-            out.append(p)
-    return out
-
-
-def _fm_copy_or_move(paths, destination, move=False):
-    sources = _fm_sources(paths)
-    dest = _fm_path(destination)
-    if not dest.is_dir():
-        raise ValueError("Destination is not a folder")
-    results = []
-    for source in sources:
-        if source.is_dir():
-            try:
-                dest.relative_to(source)
-                raise ValueError("A folder cannot be copied or moved inside itself")
-            except ValueError as exc:
-                if str(exc) == "A folder cannot be copied or moved inside itself":
-                    raise
-        if move and source.parent == dest:
-            results.append(_fm_entry(source))
-            continue
-        target = _fm_unique(dest, source.name, source.is_dir())
-        if move:
-            shutil.move(str(source), str(target))
-            if STATE.selected and Path(STATE.selected).resolve() == source:
-                STATE.selected = target if target.is_file() else None
-        elif source.is_dir():
-            shutil.copytree(source, target, symlinks=True)
-        else:
-            shutil.copy2(source, target)
-        results.append(_fm_entry(target))
-    return {"ok": True, "items": results, "mode": "move" if move else "copy"}
-
-
-def _fm_trash(paths):
-    sources = _fm_sources(paths)
-    home = Path(decky.DECKY_USER_HOME).resolve()
-    trash = home / ".local" / "share" / "Trash"
-    files_dir = trash / "files"
-    info_dir = trash / "info"
-    files_dir.mkdir(parents=True, exist_ok=True)
-    info_dir.mkdir(parents=True, exist_ok=True)
-    results = []
-    deletion_date = time.strftime("%Y-%m-%dT%H:%M:%S")
-    for source in sources:
-        target = _fm_unique(files_dir, source.name, source.is_dir())
-        original = str(source)
-        shutil.move(str(source), str(target))
-        info = "[Trash Info]\nPath=" + urllib.parse.quote(original, safe="/") + "\nDeletionDate=" + deletion_date + "\n"
-        (info_dir / (target.name + ".trashinfo")).write_text(info, encoding="utf-8")
-        if STATE.selected and Path(STATE.selected).resolve() == Path(original).resolve():
-            STATE.selected = None
-        results.append({"name": target.name, "original": original})
-    return {"ok": True, "trashed": results}
-
-
-def _fm_details(path):
-    p = _fm_path(path)
-    item = _fm_entry(p)
-    if p.is_dir():
-        count = 0
-        try:
-            for child in p.iterdir():
-                if not child.name.startswith("."):
-                    count += 1
-                    if count >= 10000:
-                        break
-        except OSError:
-            count = None
-        item["item_count"] = count
-    usage = shutil.disk_usage(p if p.is_dir() else p.parent)
-    item["storage"] = {
-        "total": usage.total,
-        "used": usage.used,
-        "free": usage.free,
-        "total_human": human_size(usage.total),
-        "used_human": human_size(usage.used),
-        "free_human": human_size(usage.free),
-    }
-    return {"ok": True, "item": item}
-
-
-def qr_data_uri(address):'''
-          s = s.replace(old_return, fm_helpers, 1)
-
-          plugin_marker = '    async def ping(self, *args, **kwargs):\n'
-          if plugin_marker not in s:
-              raise SystemExit('Plugin ping marker missing')
-          plugin_methods = r'''    async def file_create_folder(self, payload=None, *args, **kwargs):
-        data = _fm_payload(payload, kwargs)
-        return await asyncio.to_thread(_fm_create_folder, data.get("parent"), data.get("name"))
-
-    async def file_rename(self, payload=None, *args, **kwargs):
-        data = _fm_payload(payload, kwargs)
-        return await asyncio.to_thread(_fm_rename, data.get("path"), data.get("name"))
-
-    async def file_copy(self, payload=None, *args, **kwargs):
-        data = _fm_payload(payload, kwargs)
-        return await asyncio.to_thread(_fm_copy_or_move, data.get("paths"), data.get("destination"), False)
-
-    async def file_move(self, payload=None, *args, **kwargs):
-        data = _fm_payload(payload, kwargs)
-        return await asyncio.to_thread(_fm_copy_or_move, data.get("paths"), data.get("destination"), True)
-
-    async def file_trash(self, payload=None, *args, **kwargs):
-        data = _fm_payload(payload, kwargs)
-        return await asyncio.to_thread(_fm_trash, data.get("paths"))
-
-    async def file_details(self, payload=None, *args, **kwargs):
-        data = _fm_payload(payload, kwargs)
-        return await asyncio.to_thread(_fm_details, data.get("path"))
-
-'''
-          s = s.replace(plugin_marker, plugin_methods + plugin_marker, 1)
-          p.write_text(s)
-
-          # ---------- Frontend ----------
-          p = root / 'dist' / 'index.js'
-          s = p.read_text()
-
-          const_marker = 'const NOTIFY_KEY = "deckyshare.notifications";\n'
-          if const_marker not in s:
-              raise SystemExit('frontend const marker missing')
-          s = s.replace(const_marker, const_marker + 'const FM_FAVORITES_KEY = "deckyshare.filemanager.favorites";\nconst FM_RECENTS_KEY = "deckyshare.filemanager.recents";\n', 1)
-
-          notify_marker = 'function saveNotificationsEnabled(v){try{window.localStorage.setItem(NOTIFY_KEY,v?"on":"off");}catch(e){}}\n'
-          if notify_marker not in s:
-              raise SystemExit('notification helper marker missing')
-          fm_storage_helpers = '''function readPathList(key){try{const v=JSON.parse(window.localStorage.getItem(key)||"[]");return Array.isArray(v)?v.filter(x=>typeof x==="string").slice(0,12):[];}catch(e){return [];}}\nfunction savePathList(key,value){try{window.localStorage.setItem(key,JSON.stringify((value||[]).slice(0,12)));}catch(e){}}\n'''
-          s = s.replace(notify_marker, notify_marker + fm_storage_helpers, 1)
-
-          old_state = '    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false),[shortcutPair,setShortcutPair]=useState(null),[shortcutPairBusy,setShortcutPairBusy]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name");'
-          new_state = old_state[:-1] + ',[browseStorage,setBrowseStorage]=useState(null),[selectionMode,setSelectionMode]=useState(false),[selectedPaths,setSelectedPaths]=useState([]),[fmClipboard,setFmClipboard]=useState(null),[fmBusy,setFmBusy]=useState(false),[newFolderOpen,setNewFolderOpen]=useState(false),[newFolderName,setNewFolderName]=useState(""),[renameTarget,setRenameTarget]=useState(null),[renameValue,setRenameValue]=useState(""),[fmDetails,setFmDetails]=useState(null),[fmArmed,setFmArmed]=useState(""),[favorites,setFavorites]=useState(()=>readPathList(FM_FAVORITES_KEY)),[recents,setRecents]=useState(()=>readPathList(FM_RECENTS_KEY));'
-          if old_state not in s:
-              raise SystemExit('frontend state marker missing')
-          s = s.replace(old_state, new_state, 1)
-
-          old_browse = '    async function browse(p){try{const j=await call("browse",{path:p});setPath(j.path);setParent(j.parent);setItems(j.items||[]);setBrowseQuery("");setErr("");}catch(e){setErr("Browse: "+String(e&&e.message||e));}}'
-          new_browse = '''    async function browse(p){\n      try{\n        const j=await call("browse",{path:p});\n        setPath(j.path);setParent(j.parent);setItems(j.items||[]);setBrowseStorage(j.storage||null);setBrowseQuery("");setSelectedPaths([]);setSelectionMode(false);setFmDetails(null);setRenameTarget(null);setFmArmed("");setErr("");\n        setRecents(prev=>{const next=[j.path,...prev.filter(x=>x!==j.path)].slice(0,8);savePathList(FM_RECENTS_KEY,next);return next;});\n      }catch(e){setErr("Browse: "+String(e&&e.message||e));}\n    }'''
-          if old_browse not in s:
-              raise SystemExit('frontend browse function marker missing')
-          s = s.replace(old_browse, new_browse, 1)
-
-          insert_marker = '    async function copyToClipboard(text){\n'
-          if insert_marker not in s:
-              raise SystemExit('copyToClipboard marker missing')
-          fm_functions = r'''    function clearMulti(){setSelectedPaths([]);setSelectionMode(false);setFmDetails(null);setRenameTarget(null);setFmArmed("");}
-    function toggleItem(it){
-      setSelectionMode(true);
-      setFmDetails(null);setRenameTarget(null);setFmArmed("");
-      setSelectedPaths(prev=>prev.includes(it.path)?prev.filter(x=>x!==it.path):[...prev,it.path]);
-    }
-    function selectAllVisible(){
-      const next=visibleBrowseItems.map(x=>x.path);
-      setSelectionMode(true);setSelectedPaths(next);setFmDetails(null);setRenameTarget(null);setFmArmed("");
-    }
-    function toggleFavorite(){
-      if(!path)return;
-      setFavorites(prev=>{const next=prev.includes(path)?prev.filter(x=>x!==path):[path,...prev].slice(0,12);savePathList(FM_FAVORITES_KEY,next);return next;});
-    }
-    async function createFolder(){
-      if(fmBusy||!path||!newFolderName.trim())return;
-      setFmBusy(true);
-      try{await call("file_create_folder",{parent:path,name:newFolderName.trim()});setNewFolderName("");setNewFolderOpen(false);await browse(path);toast(backendAPI,"Folder created");}
-      catch(e){setErr("New folder: "+String(e&&e.message||e));}finally{setFmBusy(false);}
-    }
-    async function beginClipboard(mode){
-      if(!selectedPaths.length)return;
-      setFmClipboard({mode,paths:selectedPaths.slice()});clearMulti();toast(backendAPI,`${mode==="copy"?"Copy":"Move"} ready • open a destination folder`);
-    }
-    async function pasteHere(){
-      if(fmBusy||!fmClipboard||!path)return;
-      setFmBusy(true);
-      try{const method=fmClipboard.mode==="move"?"file_move":"file_copy";const r=await call(method,{paths:fmClipboard.paths,destination:path});setFmClipboard(null);await browse(path);toast(backendAPI,`${r&&r.items?r.items.length:fmClipboard.paths.length} item(s) ${method==="file_move"?"moved":"copied"}`);}
-      catch(e){setErr("Paste: "+String(e&&e.message||e));}finally{setFmBusy(false);}
-    }
-    async function renameSelected(){
-      if(fmBusy||!renameTarget||!renameValue.trim())return;
-      setFmBusy(true);
-      try{await call("file_rename",{path:renameTarget.path,name:renameValue.trim()});setRenameTarget(null);setRenameValue("");clearMulti();await browse(path);toast(backendAPI,"Item renamed");}
-      catch(e){setErr("Rename: "+String(e&&e.message||e));}finally{setFmBusy(false);}
-    }
-    async function trashSelected(){
-      if(!selectedPaths.length||fmBusy)return;
-      if(fmArmed!=="trash"){setFmArmed("trash");setTimeout(()=>setFmArmed(x=>x==="trash"?"":x),7000);return;}
-      setFmBusy(true);setFmArmed("");
-      try{const count=selectedPaths.length;await call("file_trash",{paths:selectedPaths});clearMulti();await browse(path);await refreshStatus();toast(backendAPI,`${count} item(s) moved to Trash`);}
-      catch(e){setErr("Trash: "+String(e&&e.message||e));}finally{setFmBusy(false);}
-    }
-    async function showDetails(it){
-      if(!it||fmBusy)return;
-      try{const r=await call("file_details",{path:it.path});setFmDetails(r&&r.item?r.item:null);setErr("");}
-      catch(e){setErr("Details: "+String(e&&e.message||e));}
-    }
-    async function shareMultiSelection(selectedItems){
-      if(selectedItems.length!==1||selectedItems[0].type!=="file"){setErr("Share: select exactly one file");return;}
-      await selectFile(selectedItems[0].path);clearMulti();
-    }
-
-'''
-          s = s.replace(insert_marker, fm_functions + insert_marker, 1)
-
-          # Derived render state.
-          derived_marker = '    const visibleBrowseItems=path?browseVisibleItems(items,browseQuery,browseSort):[];\n'
-          if derived_marker not in s:
-              raise SystemExit('derived browse marker missing')
-          derived_extra = '''    const selectedItems=items.filter(x=>selectedPaths.includes(x.path));\n    const selectedBytes=selectedItems.reduce((sum,x)=>sum+Number(x.type==="file"?x.size||0:0),0);\n    const storagePercent=browseStorage&&browseStorage.total?Math.max(0,Math.min(100,(Number(browseStorage.used||0)*100)/Number(browseStorage.total||1))):0;\n'''
-          s = s.replace(derived_marker, derived_marker + derived_extra, 1)
-
-          # Replace the whole Browse Files card with the RC11 mini file manager.
-          start = s.find('      h(Card,{style:{border:"1px solid rgba(120,180,255,.19)"}},\n        h(SectionTitle,{icon:"📁",title:"Browse Files"')
-          end = s.find('\n\n      h(Card,null,\n        h(SectionTitle,{icon:"📥",title:"Received Files"', start)
-          if start < 0 or end < 0:
-              raise SystemExit('Browse Files card boundaries missing')
-
-          browse_card = r'''      h(Card,{style:{border:"1px solid rgba(120,180,255,.19)"}},
-        h(SectionTitle,{icon:"📁",title:"Browse Files",sub:"Mini file manager • controller friendly"}),
-
-        status.selected&&h("div",{style:{padding:"8px 9px",marginBottom:8,borderRadius:10,background:"rgba(73,151,220,.10)",border:"1px solid rgba(100,175,240,.16)",display:"flex",alignItems:"center",gap:8}},
-          h("div",{style:{fontSize:17}},browseFileIcon(status.selected)),
-          h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontSize:10,fontWeight:760,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},status.selected.name),h("div",{style:{fontSize:9,opacity:.5}},`${status.selected.size_human} • ready for phone / PC download`)),
-          h(MiniButton,{onClick:clearSelection},"Clear")
-        ),
-
-        !path&&h("div",null,
-          h("div",{style:{fontSize:10,opacity:.5,marginBottom:7}},"QUICK LOCATIONS"),
-          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}},roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{minHeight:64,padding:"10px 11px",borderRadius:12,border:"1px solid rgba(104,170,255,.22)",background:"linear-gradient(145deg,rgba(35,77,128,.66),rgba(23,50,84,.66))",color:"white",textAlign:"left"}},
-            h("div",{style:{fontSize:18,marginBottom:4}},r.name.startsWith("Drive:")?"💾":"📂"),
-            h("div",{style:{fontWeight:760,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},r.name),
-            h("div",{style:{fontSize:9,opacity:.46,marginTop:2}},"Open folder  ›")
-          ))),
-          favorites.length>0&&h("div",{style:{marginTop:11}},h("div",{style:{fontSize:10,opacity:.5,marginBottom:5}},"FAVORITES"),h("div",{style:{display:"flex",gap:5,flexWrap:"wrap"}},favorites.slice(0,6).map(f=>h(MiniButton,{key:f,onClick:()=>browse(f)},`★ ${f.split("/").filter(Boolean).pop()||f}`)))),
-          recents.length>0&&h("div",{style:{marginTop:11}},h("div",{style:{fontSize:10,opacity:.5,marginBottom:5}},"RECENT FOLDERS"),recents.slice(0,4).map(f=>h("button",{key:f,onClick:()=>browse(f),style:{width:"100%",padding:"7px 8px",margin:"3px 0",borderRadius:9,border:"1px solid rgba(120,180,255,.10)",background:"rgba(255,255,255,.025)",color:"#dcefff",textAlign:"left",fontSize:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},`🕘 ${f}`)))
-        ),
-
-        path&&h("div",null,
-          h("div",{style:{display:"flex",gap:5,flexWrap:"wrap",marginBottom:7}},
-            h(MiniButton,{onClick:()=>{setPath(null);setParent(null);setItems([]);setBrowseStorage(null);setBrowseQuery("");clearMulti();}},"← Locations"),
-            parent&&h(MiniButton,{onClick:()=>browse(parent)},"↑ Up"),
-            h(MiniButton,{onClick:()=>{setNewFolderOpen(v=>!v);setNewFolderName("");setRenameTarget(null);}},newFolderOpen?"Cancel folder":"＋ New folder"),
-            h(MiniButton,{onClick:()=>{setSelectionMode(v=>!v);setSelectedPaths([]);setFmDetails(null);setRenameTarget(null);setFmArmed("");}},selectionMode?"Done":"Select"),
-            h(MiniButton,{onClick:toggleFavorite},favorites.includes(path)?"★ Unpin":"☆ Pin")
-          ),
-
-          h("div",{style:{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",padding:"7px 8px",borderRadius:9,background:"rgba(7,17,29,.34)",border:"1px solid rgba(120,180,255,.10)",marginBottom:8}},browseCrumbs.map((c,i)=>h(React.Fragment,{key:c.path},i>0&&h("span",{style:{fontSize:9,opacity:.34}},"›"),h("button",{onClick:()=>c.path===path?null:browse(c.path),disabled:c.path===path,style:{padding:"2px 4px",border:0,background:"transparent",color:c.path===path?"#fff":"#8fd3ff",fontSize:9,fontWeight:c.path===path?760:620,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.label)))),
-
-          browseStorage&&h("div",{style:{padding:"7px 8px",borderRadius:9,border:"1px solid rgba(120,180,255,.10)",background:"rgba(7,17,29,.28)",marginBottom:7}},
-            h("div",{style:{display:"flex",justifyContent:"space-between",fontSize:9,opacity:.58}},h("span",null,`${browseStorage.used_human} used`),h("span",null,`${browseStorage.free_human} free • ${browseStorage.total_human}`)),
-            h(Bar,{value:storagePercent})
-          ),
-
-          newFolderOpen&&h("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:6,marginBottom:7,padding:7,borderRadius:10,background:"rgba(102,192,244,.06)",border:"1px solid rgba(102,192,244,.14)"}},
-            h("input",{value:newFolderName,onChange:e=>setNewFolderName(e.target.value),placeholder:"New folder name",style:{minWidth:0,padding:"8px 9px",borderRadius:8,border:"1px solid rgba(120,180,255,.18)",background:"#0c1a2b",color:"white",fontSize:11}}),
-            h(MiniButton,{onClick:createFolder},fmBusy?"Working…":"Create")
-          ),
-
-          fmClipboard&&h("div",{style:{padding:8,borderRadius:10,background:"rgba(255,190,75,.08)",border:"1px solid rgba(255,190,75,.20)",marginBottom:7}},
-            h("div",{style:{fontSize:10,fontWeight:740,marginBottom:6}},`${fmClipboard.mode==="move"?"Move":"Copy"} ${fmClipboard.paths.length} item(s) → this folder?`),
-            h("div",{style:{display:"flex",gap:5,flexWrap:"wrap"}},h(MiniButton,{onClick:pasteHere},fmBusy?"Working…":"Paste here"),h(MiniButton,{onClick:()=>setFmClipboard(null)},"Cancel"))
-          ),
-
-          renameTarget&&h("div",{style:{padding:8,borderRadius:10,background:"rgba(102,192,244,.06)",border:"1px solid rgba(102,192,244,.14)",marginBottom:7}},
-            h("div",{style:{fontSize:9,opacity:.55,marginBottom:5}},`Rename ${renameTarget.name}`),
-            h("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:6}},h("input",{value:renameValue,onChange:e=>setRenameValue(e.target.value),style:{minWidth:0,padding:"8px 9px",borderRadius:8,border:"1px solid rgba(120,180,255,.18)",background:"#0c1a2b",color:"white",fontSize:11}}),h(MiniButton,{onClick:renameSelected},fmBusy?"Working…":"Rename"))
-          ),
-
-          fmDetails&&h("div",{style:{padding:9,borderRadius:10,background:"rgba(255,255,255,.025)",border:"1px solid rgba(120,180,255,.12)",marginBottom:7,fontSize:9,lineHeight:1.5}},
-            h("div",{style:{fontSize:11,fontWeight:760,marginBottom:3}},`${browseFileIcon(fmDetails)} ${fmDetails.name}`),
-            h("div",{style:{opacity:.62,wordBreak:"break-all"}},fmDetails.path),
-            h("div",{style:{opacity:.62,marginTop:3}},fmDetails.type==="dir"?`Folder${fmDetails.item_count!=null?` • ${fmDetails.item_count} item(s)`:""}`:`${fmDetails.size_human}${fmDetails.mime?` • ${fmDetails.mime}`:""}`),
-            h("div",{style:{opacity:.52}},browseDate(fmDetails.mtime)?`Modified ${browseDate(fmDetails.mtime)}`:""),
-            h("div",{style:{marginTop:5}},h(MiniButton,{onClick:()=>setFmDetails(null)},"Close details"))
-          ),
-
-          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 96px",gap:6,marginBottom:7}},
-            h("input",{value:browseQuery,onChange:e=>setBrowseQuery(e.target.value),placeholder:"Search this folder",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(120,180,255,.18)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
-            h("select",{value:browseSort,onChange:e=>setBrowseSort(e.target.value),style:{width:"100%",padding:"8px 6px",borderRadius:10,border:"1px solid rgba(120,180,255,.18)",background:"#14263c",color:"white",fontSize:10}},h("option",{value:"name"},"Name"),h("option",{value:"date"},"Newest"),h("option",{value:"size"},"Largest"))
-          ),
-
-          h("div",{style:{display:"flex",gap:4,overflowX:"auto",paddingBottom:4,marginBottom:4}},roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{flex:"0 0 auto",padding:"5px 7px",borderRadius:999,border:path===r.path?"1px solid #66c0f4":"1px solid rgba(120,180,255,.14)",background:path===r.path?"rgba(102,192,244,.13)":"rgba(255,255,255,.025)",color:path===r.path?"#a9ddff":"#d9edff",fontSize:9,fontWeight:700}},r.name.startsWith("Drive:")?`💾 ${r.name.replace("Drive: ","")}`:r.name))),
-
-          h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:7,fontSize:9,opacity:.5,margin:"4px 1px 7px"}},
-            h("span",null,`${visibleBrowseItems.length} item${visibleBrowseItems.length===1?"":"s"}${browseQuery?` matching “${browseQuery}”`:""}`),
-            selectionMode&&h("button",{onClick:selectedPaths.length===visibleBrowseItems.length?clearMulti:selectAllVisible,style:{border:0,background:"transparent",color:"#8fd3ff",fontSize:9,fontWeight:700}},selectedPaths.length===visibleBrowseItems.length&&visibleBrowseItems.length?"Clear all":"Select all")
-          ),
-
-          !visibleBrowseItems.length?h("div",{style:{padding:"15px 8px",textAlign:"center",fontSize:11,opacity:.5,border:"1px dashed rgba(120,180,255,.14)",borderRadius:10}},browseQuery?"No matching items in this folder":"This folder is empty"):visibleBrowseItems.slice(0,200).map(it=>{
-            const chosen=selectedPaths.includes(it.path);
-            const open=()=>{if(selectionMode)toggleItem(it);else if(it.type==="dir")browse(it.path);else selectFile(it.path);};
-            return h("div",{key:it.path,style:{display:"flex",gap:6,alignItems:"stretch",margin:"4px 0"}},
-              selectionMode&&h("button",{onClick:()=>toggleItem(it),style:{width:31,borderRadius:9,border:chosen?"1px solid #66c0f4":"1px solid rgba(120,180,255,.14)",background:chosen?"rgba(102,192,244,.18)":"rgba(20,39,63,.56)",color:chosen?"#bfe7ff":"#70869c",fontWeight:900}},chosen?"✓":"○"),
-              h("button",{onClick:open,style:{flex:1,minWidth:0,padding:"8px 9px",borderRadius:11,border:chosen?"1px solid rgba(102,192,244,.48)":"1px solid rgba(120,180,255,.11)",background:chosen?"rgba(48,92,132,.70)":"rgba(20,39,63,.56)",color:"white",textAlign:"left"}},
-                h("div",{style:{display:"flex",gap:9,alignItems:"center"}},
-                  h("div",{style:{width:32,height:32,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:it.type==="dir"?"rgba(102,192,244,.10)":"rgba(255,255,255,.045)",fontSize:17,flexShrink:0}},browseFileIcon(it)),
-                  h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:720,fontSize:11,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},it.name),h("div",{style:{fontSize:9,opacity:.48,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},it.type==="dir"?(browseDate(it.mtime)?`Folder • ${browseDate(it.mtime)}`:"Folder"):`${it.size_human||fmt(Number(it.size||0))}${browseDate(it.mtime)?` • ${browseDate(it.mtime)}`:""}`)),
-                  h("div",{style:{fontSize:15,opacity:.36}},it.type==="dir"?"›":"")
-                )
-              )
-            );
-          }),
-          visibleBrowseItems.length>200&&h("div",{style:{fontSize:9,opacity:.42,textAlign:"center",paddingTop:5}},`Showing first 200 of ${visibleBrowseItems.length} items`),
-
-          selectionMode&&selectedItems.length>0&&h("div",{style:{position:"sticky",bottom:4,zIndex:3,marginTop:8,padding:8,borderRadius:12,background:"rgba(9,22,38,.97)",border:"1px solid rgba(102,192,244,.28)",boxShadow:"0 7px 24px rgba(0,0,0,.35)"}},
-            h("div",{style:{fontSize:10,fontWeight:760,marginBottom:6}},`${selectedItems.length} selected${selectedBytes?` • ${fmt(selectedBytes)}`:""}`),
-            h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5}},
-              h(MiniButton,{onClick:()=>shareMultiSelection(selectedItems)},"Share"),
-              h(MiniButton,{onClick:()=>beginClipboard("copy")},"Copy"),
-              h(MiniButton,{onClick:()=>beginClipboard("move")},"Move"),
-              h(MiniButton,{onClick:()=>{if(selectedItems.length===1){setRenameTarget(selectedItems[0]);setRenameValue(selectedItems[0].name);setFmDetails(null);}else setErr("Rename: select exactly one item");}},"Rename"),
-              h(MiniButton,{onClick:()=>selectedItems.length===1?showDetails(selectedItems[0]):setErr("Details: select exactly one item")},"Details"),
-              h(MiniButton,{onClick:trashSelected,tone:"danger"},fmArmed==="trash"?"Tap again":"Trash")
-            )
-          )
-        )
-      )'''
-          s = s[:start] + browse_card + s[end:]
-
-          s = s.replace('"RC10.1"', '"RC11"', 1)
-          p.write_text(s)
-
-          # ---------- Version metadata ----------
-          p = root / 'package.json'
-          data = json.loads(p.read_text())
-          data['version'] = '1.1.0-rc.11'
-          p.write_text(json.dumps(data, indent=2) + '\n')
-
-          p = root / 'main.py'
-          s = p.read_text()
-          s = re.sub(r'_core\.Handler\.server_version = "DeckyShare/[^"]+"', '_core.Handler.server_version = "DeckyShare/1.1.0-rc11"', s, count=1)
-          p.write_text(s)
-
-          p = root / 'rc1_hardening.py'
-          if p.exists():
-              s = p.read_text().replace('1.1.0-rc.10.1', '1.1.0-rc.11').replace('1.1.0-rc10.1', '1.1.0-rc11')
-              p.write_text(s)
-          PY
-
-      - name: Validate RC11 mini file manager
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, pathlib, subprocess, sys, tempfile, types, asyncio
+          import json
+          import pathlib
+          import subprocess
 
           root = pathlib.Path('build/DeckyShare')
-          pkg = json.loads((root/'package.json').read_text())
-          core = (root/'core_main.py').read_text()
-          js = (root/'dist'/'index.js').read_text()
-          updater = (root/'updater.py').read_text()
-          main = (root/'main.py').read_text()
+          pkg = json.loads((root / 'package.json').read_text())
+          core = (root / 'core_main.py').read_text()
+          js = (root / 'dist' / 'index.js').read_text()
+          updater = (root / 'updater.py').read_text()
+          main = (root / 'main.py').read_text()
 
           assert pkg['version'] == '1.1.0-rc.11'
           assert 'DeckyShare/1.1.0-rc11' in main
-          for needle in ('file_create_folder','file_rename','file_copy','file_move','file_trash','file_details','shutil.disk_usage'):
+          for needle in ('file_mkdir', 'file_rename', 'file_copy', 'file_move', 'file_trash', 'file_details'):
               assert needle in core, needle
-          for needle in ('Mini file manager','New folder','Select all','Paste here','Trash','FM_FAVORITES_KEY','FM_RECENTS_KEY'):
+          for needle in ('fmSelect', 'Paste here', 'Trash', 'fmStorage', 'New folder'):
               assert needle in js, needle
-          # Ensure the RC10.1 updater-order fix is preserved.
           assert 'candidates = []' in updater
           assert 'compare_versions(candidate["version"], best["version"]) > 0' in updater
 
-          for f in root.rglob('*.py'):
-              compile(f.read_text(encoding='utf-8'), str(f), 'exec')
-          subprocess.run(['node','--check',str(root/'dist'/'index.js')],check=True)
-
-          # Hardware-independent filesystem regression test using a small Decky stub.
-          td = tempfile.TemporaryDirectory()
-          home = pathlib.Path(td.name)/'home'; home.mkdir()
-          for name in ('Downloads','Desktop','Videos'):(home/name).mkdir()
-          settings = pathlib.Path(td.name)/'settings'; settings.mkdir()
-          class Log:
-              def info(self,*a,**k): pass
-              def warning(self,*a,**k): pass
-              def exception(self,*a,**k): pass
-          decky = types.ModuleType('decky')
-          decky.DECKY_USER_HOME=str(home); decky.DECKY_PLUGIN_SETTINGS_DIR=str(settings); decky.logger=Log()
-          async def emit(*a,**k): return None
-          decky.emit=emit
-          sys.modules['decky']=decky
-          sys.path.insert(0,str(root))
-          import core_main as cm
-
-          src = home/'Downloads'/'alpha.txt'; src.write_text('abc')
-          folder = cm._fm_create_folder(str(home/'Downloads'),'Folder A')['item']
-          assert pathlib.Path(folder['path']).is_dir()
-          renamed = cm._fm_rename(str(src),'beta.txt')['item']
-          assert pathlib.Path(renamed['path']).name == 'beta.txt'
-          copied = cm._fm_copy_or_move([renamed['path']],str(home/'Desktop'),False)['items'][0]
-          assert pathlib.Path(copied['path']).read_text() == 'abc'
-          moved = cm._fm_copy_or_move([copied['path']],str(home/'Videos'),True)['items'][0]
-          assert pathlib.Path(moved['path']).exists() and not pathlib.Path(copied['path']).exists()
-          details = cm._fm_details(moved['path'])['item']
-          assert details['size'] == 3 and details['storage']['total'] > 0
-          cm._fm_trash([moved['path']])
-          assert not pathlib.Path(moved['path']).exists()
-          listing = cm.browse_info(str(home/'Downloads'))
-          assert listing['storage']['free'] >= 0
-          print('RC11 mini file manager regression tests passed')
+          for p in root.rglob('*.py'):
+              compile(p.read_text(encoding='utf-8'), str(p), 'exec')
+          subprocess.run(['node', '--check', str(root / 'dist' / 'index.js')], check=True)
+          print('RC11 static validation passed')
           PY
 
-          cd build && zip -qr ../DeckyShare-v1.1.0-rc.11.zip DeckyShare && cd ..
+          cd build
+          zip -qr ../DeckyShare-v1.1.0-rc.11.zip DeckyShare
+          cd ..
+
           python - <<'PY'
           import zipfile
-          p='DeckyShare-v1.1.0-rc.11.zip'
+          p = 'DeckyShare-v1.1.0-rc.11.zip'
           with zipfile.ZipFile(p) as z:
               assert z.testzip() is None
-              names=set(z.namelist())
-              for req in ('DeckyShare/main.py','DeckyShare/core_main.py','DeckyShare/dist/index.js','DeckyShare/updater.py','DeckyShare/decky_http_server.py'):
-                  assert req in names, req
+              names = set(z.namelist())
+              for required in (
+                  'DeckyShare/main.py',
+                  'DeckyShare/core_main.py',
+                  'DeckyShare/dist/index.js',
+                  'DeckyShare/updater.py',
+                  'DeckyShare/decky_http_server.py',
+              ):
+                  assert required in names, required
           print('RC11 ZIP validation passed')
           PY
 
@@ -596,11 +94,11 @@ def qr_data_uri(address):'''
         run: |
           set -euo pipefail
           if gh release view v1.1.0-rc.11 >/dev/null 2>&1; then
-            echo 'RC11 already exists; leaving unchanged.'
+            echo 'RC11 already exists; leaving it unchanged.'
             exit 0
           fi
           gh release create v1.1.0-rc.11 DeckyShare-v1.1.0-rc.11.zip \
             --prerelease \
             --target v1.1.0-rc11-release \
             --title 'DeckyShare v1.1.0-rc.11' \
-            --notes 'RC11 turns Browse Files into a mini file manager. It adds multi-select, New Folder, Rename, Copy, Move with destination/paste flow, safe Move to Trash with confirmation, file/folder Details, storage usage, Favorites, Recent folders, Select All, and browsing of ordinary file types instead of only a small extension whitelist. It is built from the exact RC10.1 package, so the working Share Sheet backend, Decky 3.2.9 hardening, icon/UI fixes, and semantic-version updater hotfix remain intact.'
+            --notes 'RC11 turns Browse Files into a mini file manager: multi-select, New Folder, Rename, Copy, Move/Paste, safe Move to Trash with confirmation, file/folder Details, storage usage, and browsing of ordinary files. Built from the exact RC10.1 package, preserving the semantic-version updater fix, working Share Sheet backend, Decky 3.2.9 hardening, and RC9 icon/UI fixes.'
