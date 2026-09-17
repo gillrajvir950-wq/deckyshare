@@ -1,0 +1,162 @@
+name: Publish DeckyShare RC7 Share Sheet cleanup
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc7-release
+    paths:
+      - .github/workflows/rc7-share-sheet-cleanup.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC7 branch
+        uses: actions/checkout@v4
+
+      - name: Download exact RC6 baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build DeckyShare-v1.1.0-rc.6.zip DeckyShare-v1.1.0-rc.7.zip
+          mkdir build
+          gh release download v1.1.0-rc.6 --pattern 'DeckyShare-v1.1.0-rc.6.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.6.zip -d build
+          test -f build/DeckyShare/main.py
+          test -f build/DeckyShare/share_sheet.py
+          test -f build/DeckyShare/dist/index.js
+
+      - name: Remove in-plugin Share Sheet QR and prepare RC7
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          root = Path('build/DeckyShare')
+
+          # Version metadata.
+          p = root / 'package.json'
+          data = json.loads(p.read_text())
+          data['version'] = '1.1.0-rc.7'
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          # Keep all RC6 Share Sheet backend functionality, but stop generating
+          # QR payloads for the Decky panel. Public releases will distribute the
+          # DeckyShare iPhone Shortcut via a normal Shortcut link instead.
+          p = root / 'share_sheet.py'
+          s = p.read_text()
+          block = re.compile(
+              r'\n    if qr_data_uri_fn:\n'
+              r'        try:\n'
+              r'            result\["setup_qr"\] = qr_data_uri_fn\(setup_url\)\n'
+              r'        except Exception:\n'
+              r'            result\["setup_qr"\] = None\n'
+          )
+          s, n = block.subn('\n', s, count=1)
+          if n != 1:
+              raise SystemExit('share_sheet setup_qr block missing')
+          p.write_text(s)
+
+          # Remove the visible iPhone Share Sheet QR card from Decky UI.
+          p = root / 'dist' / 'index.js'
+          s = p.read_text()
+          start_marker = '      h(Card,{style:{border:"1px solid rgba(120,180,255,.22)"}},\n        h(SectionTitle,{icon:"📲",title:"iPhone Share Sheet"'
+          end_marker = '      h(Card,null,\n        h(SectionTitle,{icon:"📁",title:"Browse Files"'
+          start = s.find(start_marker)
+          end = s.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('Share Sheet QR card markers missing')
+          s = s[:start] + s[end:]
+          s = s.replace('v1.1.0-rc6', 'v1.1.0-rc7')
+          p.write_text(s)
+
+          # Backend label only; startup/updater logic stays exactly as RC6.
+          p = root / 'main.py'
+          s = p.read_text()
+          s = re.sub(
+              r'_core\.Handler\.server_version = "DeckyShare/[^"]+"',
+              '_core.Handler.server_version = "DeckyShare/1.1.0-rc7"',
+              s,
+              count=1,
+          )
+          p.write_text(s)
+
+          # Browser badge/version strings where present.
+          p = root / 'rc1_hardening.py'
+          if p.exists():
+              s = p.read_text().replace('v1.1.0-rc6', 'v1.1.0-rc7')
+              p.write_text(s)
+          PY
+
+      - name: Validate RC7 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, zipfile, subprocess
+          from pathlib import Path
+
+          root = Path('build/DeckyShare')
+          package = json.loads((root / 'package.json').read_text())
+          js = (root / 'dist' / 'index.js').read_text()
+          share = (root / 'share_sheet.py').read_text()
+          main = (root / 'main.py').read_text()
+
+          assert package['version'] == '1.1.0-rc.7'
+          assert 'title:"iPhone Share Sheet"' not in js
+          assert 'setup_qr' not in js
+          assert 'result["setup_qr"]' not in share
+          assert '/shortcut/share' in (root / 'core_main.py').read_text()
+          assert 'receive_share_sheet_raw' in (root / 'core_main.py').read_text()
+          assert 'DeckyShare/1.1.0-rc7' in main
+
+          for p in root.rglob('*.py'):
+              compile(p.read_text(encoding='utf-8'), str(p), 'exec')
+          subprocess.run(['node', '--check', str(root / 'dist' / 'index.js')], check=True)
+          print('RC7 validation passed: QR removed, Share Sheet backend preserved')
+          PY
+
+          cd build
+          zip -qr ../DeckyShare-v1.1.0-rc.7.zip DeckyShare
+          cd ..
+
+          python - <<'PY'
+          import zipfile
+          p='DeckyShare-v1.1.0-rc.7.zip'
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              names=set(z.namelist())
+              for required in (
+                  'DeckyShare/main.py',
+                  'DeckyShare/core_main.py',
+                  'DeckyShare/share_sheet.py',
+                  'DeckyShare/dist/index.js',
+                  'DeckyShare/updater.py',
+              ):
+                  assert required in names
+          print('RC7 ZIP validation passed')
+          PY
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0-rc.7 >/dev/null 2>&1; then
+            echo 'v1.1.0-rc.7 already exists; leaving it unchanged.'
+            exit 0
+          fi
+          gh release create v1.1.0-rc.7 DeckyShare-v1.1.0-rc.7.zip \
+            --prerelease \
+            --target v1.1.0-rc7-release \
+            --title 'DeckyShare v1.1.0-rc.7' \
+            --notes 'RC7 removes the iPhone Share Sheet setup QR from the DeckyShare plugin UI. The working RC6 Share Sheet receive backend and persistent pairing key remain intact. Public-release onboarding will use a normal DeckyShare Shortcut link instead of an in-plugin QR. Built directly from the exact RC6 release asset.'
