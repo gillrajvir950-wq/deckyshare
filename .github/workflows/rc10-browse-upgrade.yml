@@ -1,0 +1,197 @@
+name: Publish DeckyShare RC10 Browse Files upgrade
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc10-release
+    paths:
+      - .github/workflows/rc10-browse-upgrade.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC10 branch
+        uses: actions/checkout@v4
+
+      - name: Download exact RC9 baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build DeckyShare-v1.1.0-rc.9.zip DeckyShare-v1.1.0-rc.10.zip
+          mkdir build
+          gh release download v1.1.0-rc.9 --pattern 'DeckyShare-v1.1.0-rc.9.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.9.zip -d build
+          test -f build/DeckyShare/main.py
+          test -f build/DeckyShare/core_main.py
+          test -f build/DeckyShare/dist/index.js
+          test -f build/DeckyShare/package.json
+
+      - name: Upgrade Browse Files UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          root = Path('build/DeckyShare')
+
+          # Version metadata.
+          p = root / 'package.json'
+          data = json.loads(p.read_text())
+          data['version'] = '1.1.0-rc.10'
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          # Add modified timestamps to Decky browse RPC results for sorting and metadata.
+          p = root / 'core_main.py'
+          s = p.read_text()
+          old = '''            if child.is_dir():\n                items.append({"type": "dir", "name": child.name, "path": str(child)})\n            elif child.is_file() and child.suffix.lower() in ALL_EXTS:\n                st = child.stat()\n                items.append({"type": "file", "name": child.name, "path": str(child), "size": st.st_size, "size_human": human_size(st.st_size)})\n'''
+          new = '''            if child.is_dir():\n                st = child.stat()\n                items.append({"type": "dir", "name": child.name, "path": str(child), "mtime": st.st_mtime})\n            elif child.is_file() and child.suffix.lower() in ALL_EXTS:\n                st = child.stat()\n                items.append({"type": "file", "name": child.name, "path": str(child), "size": st.st_size, "size_human": human_size(st.st_size), "mtime": st.st_mtime})\n'''
+          if old not in s:
+              raise SystemExit('RC9 browse_info marker missing')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # Frontend Browse Files upgrade.
+          p = root / 'dist' / 'index.js'
+          s = p.read_text()
+
+          helper_marker = '''function dirname(p){\n  if(!p)return null;\n  const i=p.lastIndexOf("/");\n  return i>0?p.slice(0,i):"/";\n}\n'''
+          helpers = '''function dirname(p){\n  if(!p)return null;\n  const i=p.lastIndexOf("/");\n  return i>0?p.slice(0,i):"/";\n}\nfunction browseFileIcon(item){\n  if(item&&item.type==="dir")return "📁";\n  const name=String(item&&item.name||"").toLowerCase();\n  if(/\\.(jpg|jpeg|png|gif)$/.test(name))return "🖼️";\n  if(/\\.(mp4|mkv|mov|avi|webm|m4v)$/.test(name))return "🎬";\n  if(/\\.(zip|7z|rar)$/.test(name))return "🗜️";\n  if(/\\.iso$/.test(name))return "💿";\n  if(/\\.pdf$/.test(name))return "📕";\n  if(/\\.txt$/.test(name))return "📝";\n  return "📄";\n}\nfunction browseDate(ts){\n  const n=Number(ts||0);\n  if(!n)return "";\n  try{return new Date(n*1000).toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});}catch(e){return "";}\n}\nfunction browseCrumbsFor(current,roots){\n  if(!current)return [];\n  const match=(roots||[]).filter(r=>current===r.path||current.startsWith(r.path+"/")).sort((a,b)=>b.path.length-a.path.length)[0];\n  if(!match)return [{label:current,path:current}];\n  const crumbs=[{label:match.name,path:match.path}];\n  let acc=match.path;\n  const rest=current.slice(match.path.length).split("/").filter(Boolean);\n  for(const part of rest){acc=acc.replace(/\\/$/,"")+"/"+part;crumbs.push({label:part,path:acc});}\n  return crumbs;\n}\nfunction browseVisibleItems(items,query,sortMode){\n  const q=String(query||"").trim().toLowerCase();\n  const list=(items||[]).filter(it=>!q||String(it.name||"").toLowerCase().includes(q));\n  return list.slice().sort((a,b)=>{\n    if(a.type!==b.type)return a.type==="dir"?-1:1;\n    let v=0;\n    if(sortMode==="date")v=Number(b.mtime||0)-Number(a.mtime||0);\n    else if(sortMode==="size")v=Number(b.size||0)-Number(a.size||0);\n    if(v)return v;\n    return String(a.name||"").localeCompare(String(b.name||""),undefined,{numeric:true,sensitivity:"base"});\n  });\n}\n'''
+          if helper_marker not in s:
+              raise SystemExit('dirname helper marker missing')
+          s = s.replace(helper_marker, helpers, 1)
+
+          state_old = '[shortcutPair,setShortcutPair]=useState(null),[shortcutPairBusy,setShortcutPairBusy]=useState(false);'
+          state_new = '[shortcutPair,setShortcutPair]=useState(null),[shortcutPairBusy,setShortcutPairBusy]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name");'
+          if state_old not in s:
+              raise SystemExit('frontend state marker missing')
+          s = s.replace(state_old, state_new, 1)
+
+          browse_fn_old = '    async function browse(p){try{const j=await call("browse",{path:p});setPath(j.path);setParent(j.parent);setItems(j.items||[]);setErr("");}catch(e){setErr("Browse: "+String(e&&e.message||e));}}\n'
+          browse_fn_new = '    async function browse(p){try{const j=await call("browse",{path:p});setPath(j.path);setParent(j.parent);setItems(j.items||[]);setBrowseQuery("");setErr("");}catch(e){setErr("Browse: "+String(e&&e.message||e));}}\n'
+          if browse_fn_old not in s:
+              raise SystemExit('browse function marker missing')
+          s = s.replace(browse_fn_old, browse_fn_new, 1)
+
+          const_marker = '    const displayQr=activeConn?activeConn.qr_data:status&&status.qr_data||null;\n'
+          const_new = '    const displayQr=activeConn?activeConn.qr_data:status&&status.qr_data||null;\n    const browseCrumbs=path?browseCrumbsFor(path,roots):[];\n    const visibleBrowseItems=path?browseVisibleItems(items,browseQuery,browseSort):[];\n'
+          if const_marker not in s:
+              raise SystemExit('display QR marker missing')
+          s = s.replace(const_marker, const_new, 1)
+
+          start_marker = '      h(Card,null,\n        h(SectionTitle,{icon:"📁",title:"Browse Files"'
+          end_marker = '      h(Card,null,\n        h(SectionTitle,{icon:"📥",title:"Received Files"'
+          start = s.find(start_marker)
+          end = s.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('Browse Files card boundaries missing')
+
+          new_card = '''      h(Card,{style:{border:"1px solid rgba(120,180,255,.19)"}},\n        h(SectionTitle,{icon:"📁",title:"Browse Files",sub:status.selected?"File ready to download":"Fast file browser for your Deck"}),\n        !status.selected&&!path&&h("div",null,\n          h("div",{style:{fontSize:10,opacity:.5,marginBottom:7}},"QUICK LOCATIONS"),\n          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}},roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{minHeight:64,padding:"10px 11px",borderRadius:12,border:"1px solid rgba(104,170,255,.22)",background:"linear-gradient(145deg,rgba(35,77,128,.66),rgba(23,50,84,.66))",color:"white",textAlign:"left"}},\n            h("div",{style:{fontSize:18,marginBottom:4}},r.name.startsWith("Drive:")?"💾":"📂"),\n            h("div",{style:{fontWeight:760,fontSize:12,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},r.name),\n            h("div",{style:{fontSize:9,opacity:.46,marginTop:2}},"Open folder  ›")\n          )))\n        ),\n        status.selected?h("div",{style:{padding:10,borderRadius:11,background:"rgba(73,151,220,.10)",border:"1px solid rgba(100,175,240,.16)"}},\n          h("div",{style:{display:"flex",gap:9,alignItems:"center"}},\n            h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(102,192,244,.10)",fontSize:18}},browseFileIcon(status.selected)),\n            h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:750,wordBreak:"break-word"}},status.selected.name),h("div",{style:{fontSize:11,opacity:.6,marginTop:2}},status.selected.size_human))\n          ),\n          h(Btn,{onClick:clearSelection},"Choose another file")\n        ):path&&h("div",null,\n          h("div",{style:{display:"flex",gap:6,flexWrap:"wrap",marginBottom:7}},\n            h(MiniButton,{onClick:()=>{setPath(null);setParent(null);setItems([]);setBrowseQuery("");}},"← Locations"),\n            parent&&h(MiniButton,{onClick:()=>browse(parent)},"↑ Up")\n          ),\n          h("div",{style:{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",padding:"7px 8px",borderRadius:9,background:"rgba(7,17,29,.34)",border:"1px solid rgba(120,180,255,.10)",marginBottom:8}},\n            browseCrumbs.map((c,i)=>h(React.Fragment,{key:c.path},\n              i>0&&h("span",{style:{fontSize:9,opacity:.34}},"›"),\n              h("button",{onClick:()=>c.path===path?null:browse(c.path),disabled:c.path===path,style:{padding:"2px 4px",border:0,background:"transparent",color:c.path===path?"#fff":"#8fd3ff",fontSize:9,fontWeight:c.path===path?760:620,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.label)\n            ))\n          ),\n          h("div",{style:{display:"grid",gridTemplateColumns:"1fr 96px",gap:6,marginBottom:7}},\n            h("input",{value:browseQuery,onChange:e=>setBrowseQuery(e.target.value),placeholder:"Search this folder",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(120,180,255,.18)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),\n            h("select",{value:browseSort,onChange:e=>setBrowseSort(e.target.value),style:{width:"100%",padding:"8px 6px",borderRadius:10,border:"1px solid rgba(120,180,255,.18)",background:"#14263c",color:"white",fontSize:10}},\n              h("option",{value:"name"},"Name"),\n              h("option",{value:"date"},"Newest"),\n              h("option",{value:"size"},"Largest")\n            )\n          ),\n          h("div",{style:{display:"flex",gap:4,overflowX:"auto",paddingBottom:4,marginBottom:4}},roots.map(r=>h("button",{key:r.path,onClick:()=>browse(r.path),style:{flex:"0 0 auto",padding:"5px 7px",borderRadius:999,border:path===r.path?"1px solid #66c0f4":"1px solid rgba(120,180,255,.14)",background:path===r.path?"rgba(102,192,244,.13)":"rgba(255,255,255,.025)",color:path===r.path?"#a9ddff":"#d9edff",fontSize:9,fontWeight:700}},r.name.startsWith("Drive:")?`💾 ${r.name.replace("Drive: ","")}`:r.name))),\n          h("div",{style:{fontSize:9,opacity:.42,margin:"4px 1px 7px"}},`${visibleBrowseItems.length} item${visibleBrowseItems.length===1?"":"s"}${browseQuery?` matching “${browseQuery}”`:""}`),\n          !visibleBrowseItems.length?h("div",{style:{padding:"15px 8px",textAlign:"center",fontSize:11,opacity:.5,border:"1px dashed rgba(120,180,255,.14)",borderRadius:10}},browseQuery?"No matching files in this folder":"This folder has no supported files"):visibleBrowseItems.slice(0,150).map(it=>h("button",{key:it.path,onClick:()=>it.type==="dir"?browse(it.path):selectFile(it.path),style:{width:"100%",padding:"8px 9px",margin:"4px 0",borderRadius:11,border:"1px solid rgba(120,180,255,.11)",background:"rgba(20,39,63,.56)",color:"white",textAlign:"left"}},\n            h("div",{style:{display:"flex",gap:9,alignItems:"center"}},\n              h("div",{style:{width:32,height:32,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:it.type==="dir"?"rgba(102,192,244,.10)":"rgba(255,255,255,.045)",fontSize:17,flexShrink:0}},browseFileIcon(it)),\n              h("div",{style:{minWidth:0,flex:1}},\n                h("div",{style:{fontWeight:720,fontSize:11,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},it.name),\n                h("div",{style:{fontSize:9,opacity:.48,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},it.type==="dir"?(browseDate(it.mtime)?`Folder • ${browseDate(it.mtime)}`:"Folder"):`${it.size_human||fmt(Number(it.size||0))}${browseDate(it.mtime)?` • ${browseDate(it.mtime)}`:""}`)\n              ),\n              h("div",{style:{fontSize:15,opacity:.36}},it.type==="dir"?"›":"")\n            )\n          )),\n          visibleBrowseItems.length>150&&h("div",{style:{fontSize:9,opacity:.42,textAlign:"center",paddingTop:5}},`Showing first 150 of ${visibleBrowseItems.length} items`)\n        )\n      ),\n\n'''
+          s = s[:start] + new_card + s[end:]
+
+          if '"RC9"' not in s:
+              raise SystemExit('RC9 header badge missing')
+          s = s.replace('"RC9"', '"RC10"', 1)
+          p.write_text(s)
+
+          # Backend version label only; keep RC9 reliability, updater, Share Sheet backend unchanged.
+          p = root / 'main.py'
+          s = p.read_text()
+          s = re.sub(
+              r'_core\.Handler\.server_version = "DeckyShare/[^"]+"',
+              '_core.Handler.server_version = "DeckyShare/1.1.0-rc10"',
+              s,
+              count=1,
+          )
+          p.write_text(s)
+
+          p = root / 'rc1_hardening.py'
+          if p.exists():
+              p.write_text(p.read_text().replace('v1.1.0-rc9', 'v1.1.0-rc10'))
+          PY
+
+      - name: Validate RC10 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          root = Path('build/DeckyShare')
+          pkg = json.loads((root / 'package.json').read_text())
+          js = (root / 'dist' / 'index.js').read_text()
+          core = (root / 'core_main.py').read_text()
+          main = (root / 'main.py').read_text()
+
+          assert pkg['version'] == '1.1.0-rc.10'
+          assert '"RC10"' in js
+          assert 'Search this folder' in js
+          assert 'QUICK LOCATIONS' in js
+          assert 'browseCrumbsFor' in js
+          assert 'browseVisibleItems' in js
+          assert 'value:"date"' in js
+          assert 'value:"size"' in js
+          assert '"mtime": st.st_mtime' in core
+          assert 'DeckyShare/1.1.0-rc10' in main
+
+          # RC9 fixes/features must remain intact.
+          assert 'title:"iPhone Shortcut"' not in js
+          assert 'title:"iPhone Share Sheet"' not in js
+          assert 'function DeckyShareBrandIcon' in js
+          assert '/shortcut/share' in core
+          assert '/shortcut/pair' in core
+          assert 'decky_http_server' in core
+          assert 'utilities/install_plugin' in js
+
+          for py in root.rglob('*.py'):
+              compile(py.read_text(encoding='utf-8'), str(py), 'exec')
+          subprocess.run(['node', '--check', str(root / 'dist' / 'index.js')], check=True)
+          print('RC10 static validation passed')
+          PY
+
+          cd build
+          zip -qr ../DeckyShare-v1.1.0-rc.10.zip DeckyShare
+          cd ..
+
+          python - <<'PY'
+          import zipfile
+          p='DeckyShare-v1.1.0-rc.10.zip'
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              names=set(z.namelist())
+              for req in (
+                  'DeckyShare/main.py',
+                  'DeckyShare/core_main.py',
+                  'DeckyShare/share_sheet.py',
+                  'DeckyShare/decky_http_server.py',
+                  'DeckyShare/dist/index.js',
+                  'DeckyShare/updater.py',
+              ):
+                  assert req in names, req
+          print('RC10 ZIP validation passed')
+          PY
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0-rc.10 >/dev/null 2>&1; then
+            echo 'v1.1.0-rc.10 already exists; leaving it unchanged.'
+            exit 0
+          fi
+          gh release create v1.1.0-rc.10 DeckyShare-v1.1.0-rc.10.zip \
+            --prerelease \
+            --target v1.1.0-rc10-release \
+            --title 'DeckyShare v1.1.0-rc.10' \
+            --notes 'RC10 upgrades Browse Files while preserving the RC9 working baseline. It adds quick locations, clickable breadcrumbs, current-folder search, Name/Newest/Largest sorting, file-type icons, size/modified-date metadata, clearer empty states, and denser controller-friendly file rows. The iPhone setup card stays removed, the RC9 icon stays intact, and the Share Sheet backend, Decky 3.2.9 hardening, and native updater are unchanged.'
