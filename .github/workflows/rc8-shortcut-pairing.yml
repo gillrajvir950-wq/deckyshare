@@ -1,0 +1,370 @@
+name: Publish DeckyShare RC8 Shortcut pairing prerelease
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc8-release
+    paths:
+      - .github/workflows/rc8-shortcut-pairing.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout RC8 branch
+        uses: actions/checkout@v4
+
+      - name: Download exact RC7 baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build DeckyShare-v1.1.0-rc.7.zip DeckyShare-v1.1.0-rc.8.zip
+          mkdir build
+          gh release download v1.1.0-rc.7 --pattern 'DeckyShare-v1.1.0-rc.7.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.7.zip -d build
+          test -f build/DeckyShare/main.py
+          test -f build/DeckyShare/core_main.py
+          test -f build/DeckyShare/share_sheet.py
+          test -f build/DeckyShare/dist/index.js
+
+      - name: Add one-time public Shortcut pairing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat >> build/DeckyShare/share_sheet.py <<'PYFILE'
+
+
+          PAIRING_TTL_SECONDS = 10 * 60
+          PAIRING_WINDOW_SECONDS = 60
+          PAIRING_MAX_ATTEMPTS = 6
+
+
+          def _pairing_state(state):
+              return (
+                  getattr(state, "shortcut_pairing_code", None),
+                  float(getattr(state, "shortcut_pairing_expires", 0.0) or 0.0),
+              )
+
+
+          def start_pairing(state, base_url: str) -> dict:
+              """Create a short-lived one-time code for the public iPhone Shortcut."""
+              now = time.time()
+              code = f"{secrets.randbelow(1_000_000):06d}"
+              with state.lock:
+                  state.shortcut_pairing_code = code
+                  state.shortcut_pairing_expires = now + PAIRING_TTL_SECONDS
+                  state.shortcut_pairing_attempts = {}
+              return {
+                  "ok": True,
+                  "code": code,
+                  "address": str(base_url or "").rstrip("/"),
+                  "expires_at": now + PAIRING_TTL_SECONDS,
+                  "expires_in": PAIRING_TTL_SECONDS,
+                  "one_time": True,
+              }
+
+
+          def pairing_status(state, base_url: str) -> dict:
+              now = time.time()
+              with state.lock:
+                  code, expires = _pairing_state(state)
+                  if not code or expires <= now:
+                      state.shortcut_pairing_code = None
+                      state.shortcut_pairing_expires = 0.0
+                      return {"ok": True, "active": False, "address": str(base_url or "").rstrip("/")}
+                  return {
+                      "ok": True,
+                      "active": True,
+                      "code": code,
+                      "address": str(base_url or "").rstrip("/"),
+                      "expires_at": expires,
+                      "expires_in": max(0, int(expires - now)),
+                      "one_time": True,
+                  }
+
+
+          def pair_request(state, query: dict, client_ip: str, base_url: str, key: str):
+              """Exchange a temporary six-digit code for the authenticated Share Sheet endpoint."""
+              now = time.time()
+              client = str(client_ip or "unknown")
+              provided = str((query.get("code") or [""])[0]).strip()
+
+              with state.lock:
+                  attempts = getattr(state, "shortcut_pairing_attempts", {})
+                  recent = [float(t) for t in attempts.get(client, []) if now - float(t) < PAIRING_WINDOW_SECONDS]
+                  if len(recent) >= PAIRING_MAX_ATTEMPTS:
+                      attempts[client] = recent
+                      state.shortcut_pairing_attempts = attempts
+                      return {"error": "Too many pairing attempts. Wait one minute and try again."}, 429
+
+                  expected, expires = _pairing_state(state)
+                  if not expected or expires <= now:
+                      state.shortcut_pairing_code = None
+                      state.shortcut_pairing_expires = 0.0
+                      return {"error": "Pairing code expired. Start pairing again on Steam Deck."}, 410
+
+                  try:
+                      matches = bool(provided) and secrets.compare_digest(provided, str(expected))
+                  except Exception:
+                      matches = False
+
+                  if not matches:
+                      recent.append(now)
+                      attempts[client] = recent
+                      state.shortcut_pairing_attempts = attempts
+                      return {"error": "Invalid pairing code"}, 403
+
+                  # One successful exchange consumes the code immediately.
+                  state.shortcut_pairing_code = None
+                  state.shortcut_pairing_expires = 0.0
+                  state.shortcut_pairing_attempts = {}
+
+              info = setup_info(base_url, key)
+              return {
+                  "ok": True,
+                  "endpoint": info["endpoint"],
+                  "base_url": str(base_url or "").rstrip("/"),
+                  "paired_at": now,
+              }, 200
+          PYFILE
+
+          python - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          root = Path('build/DeckyShare')
+
+          # Version metadata.
+          p = root / 'package.json'
+          data = json.loads(p.read_text())
+          data['version'] = '1.1.0-rc.8'
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          # Backend imports + HTTP pairing endpoint + Decky RPC controls.
+          p = root / 'core_main.py'
+          s = p.read_text()
+          old = '''    setup_info as share_sheet_setup_info,\n    setup_page as share_sheet_setup_page,\n)\n'''
+          new = '''    setup_info as share_sheet_setup_info,\n    setup_page as share_sheet_setup_page,\n    start_pairing as start_share_sheet_pairing,\n    pairing_status as share_sheet_pairing_status,\n    pair_request as pair_share_sheet_shortcut,\n)\n'''
+          if old not in s:
+              raise SystemExit('share_sheet import marker missing')
+          s = s.replace(old, new, 1)
+
+          old = '''    def do_POST(self):\n        u = urllib.parse.urlsplit(self.path)\n        if u.path == "/shortcut/share":\n'''
+          new = '''    def do_POST(self):\n        u = urllib.parse.urlsplit(self.path)\n        if u.path == "/shortcut/pair":\n            q = urllib.parse.parse_qs(u.query)\n            host = str(self.headers.get("Host") or "").strip()\n            if not host or not all(ch.isalnum() or ch in ".-:[]" for ch in host):\n                host = f"{local_ip()}:{STATE.port}"\n            base = f"http://{host}/"\n            result, status = pair_share_sheet_shortcut(\n                STATE, q, self.client_address[0], base, STATE.share_key\n            )\n            return self.send_json(result, status)\n        if u.path == "/shortcut/share":\n'''
+          if old not in s:
+              raise SystemExit('do_POST pairing marker missing')
+          s = s.replace(old, new, 1)
+
+          marker = '''    async def browse(self, path=None, *args, **kwargs):\n'''
+          methods = '''    async def shortcut_pairing_start(self, *args, **kwargs):\n        if STATE.server is None:\n            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)\n        options = connection_options()\n        preferred = options[0] if options else {"url": f"http://127.0.0.1:{STATE.port}/"}\n        return start_share_sheet_pairing(STATE, preferred["url"])\n\n    async def shortcut_pairing_status(self, *args, **kwargs):\n        if STATE.server is None:\n            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)\n        options = connection_options()\n        preferred = options[0] if options else {"url": f"http://127.0.0.1:{STATE.port}/"}\n        return share_sheet_pairing_status(STATE, preferred["url"])\n\n'''
+          if marker not in s:
+              raise SystemExit('Plugin browse marker missing')
+          s = s.replace(marker, methods + marker, 1)
+          p.write_text(s)
+
+          # Decky panel: no QR. Add a compact, explicit one-time pairing card.
+          p = root / 'dist' / 'index.js'
+          s = p.read_text()
+          state_old = '[rollbackArmed,setRollbackArmed]=useState(false);'
+          state_new = '[rollbackArmed,setRollbackArmed]=useState(false),[shortcutPair,setShortcutPair]=useState(null),[shortcutPairBusy,setShortcutPairBusy]=useState(false);'
+          if state_old not in s:
+              raise SystemExit('frontend state marker missing')
+          s = s.replace(state_old, state_new, 1)
+
+          function_marker = '    useEffect(()=>{bootstrap();},[]);\n'
+          function_code = '''    async function startShortcutPairing(){\n      if(shortcutPairBusy)return;\n      setShortcutPairBusy(true);\n      try{\n        const r=await call("shortcut_pairing_start");\n        if(!r||!r.ok)throw new Error(r&&r.error||"Could not start pairing");\n        setShortcutPair(r);setErr("");\n      }catch(e){setErr("iPhone pairing: "+String(e&&e.message||e));}\n      finally{setShortcutPairBusy(false);}\n    }\n\n'''
+          if function_marker not in s:
+              raise SystemExit('frontend useEffect marker missing')
+          s = s.replace(function_marker, function_code + function_marker, 1)
+
+          browse_marker = '''      h(Card,null,\n        h(SectionTitle,{icon:"📁",title:"Browse Files",sub:status.selected?"File ready to download":"Choose a location, then select a file"}),\n'''
+          pair_card = '''      h(Card,{style:{border:"1px solid rgba(120,180,255,.22)"}},\n        h(SectionTitle,{icon:"📱",title:"iPhone Shortcut",sub:"Install the public Shortcut once, then pair it to this Deck"}),\n        h(Btn,{onClick:startShortcutPairing,disabled:shortcutPairBusy},shortcutPairBusy?"Starting pairing…":shortcutPair?"New pairing code":"Start pairing"),\n        shortcutPair&&shortcutPair.code&&h("div",{style:{marginTop:8,padding:10,borderRadius:11,background:"rgba(6,15,27,.55)",border:"1px solid rgba(120,180,255,.18)"}},\n          h("div",{style:{fontSize:10,opacity:.58,marginBottom:3}},"PAIRING CODE"),\n          h("div",{style:{fontSize:28,fontWeight:850,letterSpacing:5}},shortcutPair.code),\n          h("div",{style:{fontSize:10,opacity:.7,marginTop:7}},"Deck address"),\n          h("div",{style:{fontSize:11,fontFamily:"monospace",wordBreak:"break-all",marginTop:2}},String(shortcutPair.address||"").replace(/^https?:\\/\\//,"")),\n          h("div",{style:{fontSize:9,opacity:.48,marginTop:7}},"One-time code • expires in 10 minutes • no QR")\n        ),\n        h("div",{style:{fontSize:9,opacity:.48,marginTop:7,lineHeight:1.35}},"The public iCloud Shortcut link will be distributed with DeckyShare. Existing paired Shortcuts keep working.")\n      ),\n\n'''
+          if browse_marker not in s:
+              raise SystemExit('Browse Files card marker missing')
+          s = s.replace(browse_marker, pair_card + browse_marker, 1)
+          s = s.replace('v1.1.0-rc7', 'v1.1.0-rc8')
+          p.write_text(s)
+
+          # Backend/version labels only; preserve RC7 startup + updater logic.
+          p = root / 'main.py'
+          s = p.read_text()
+          s = re.sub(
+              r'_core\.Handler\.server_version = "DeckyShare/[^"]+"',
+              '_core.Handler.server_version = "DeckyShare/1.1.0-rc8"',
+              s,
+              count=1,
+          )
+          p.write_text(s)
+
+          p = root / 'rc1_hardening.py'
+          if p.exists():
+              s = p.read_text().replace('v1.1.0-rc7', 'v1.1.0-rc8')
+              p.write_text(s)
+          PY
+
+      - name: Validate RC8 pairing behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          root = Path('build/DeckyShare')
+          package = json.loads((root / 'package.json').read_text())
+          core = (root / 'core_main.py').read_text()
+          share = (root / 'share_sheet.py').read_text()
+          js = (root / 'dist' / 'index.js').read_text()
+          main = (root / 'main.py').read_text()
+
+          assert package['version'] == '1.1.0-rc.8'
+          assert '/shortcut/pair' in core
+          assert 'shortcut_pairing_start' in core
+          assert 'pair_share_sheet_shortcut' in core
+          assert 'PAIRING_TTL_SECONDS = 10 * 60' in share
+          assert 'PAIRING_MAX_ATTEMPTS = 6' in share
+          assert 'title:"iPhone Shortcut"' in js
+          assert 'Start pairing' in js
+          assert 'setup_qr' not in js
+          assert 'DeckyShare/1.1.0-rc8' in main
+
+          for p in root.rglob('*.py'):
+              compile(p.read_text(encoding='utf-8'), str(p), 'exec')
+          subprocess.run(['node', '--check', str(root / 'dist' / 'index.js')], check=True)
+          print('RC8 static validation passed')
+          PY
+
+          cat > /tmp/test_rc8.py <<'PY'
+          import asyncio, importlib.util, json, os, pathlib, sys, types, urllib.error, urllib.parse, urllib.request
+
+          root = pathlib.Path(sys.argv[1])
+          home = root / '_fake_home'
+          settings = root / '_fake_settings'
+          (home / 'Downloads').mkdir(parents=True, exist_ok=True)
+          settings.mkdir(parents=True, exist_ok=True)
+
+          class Logger:
+              def info(self,*a,**k): pass
+              def warning(self,*a,**k): pass
+              def exception(self,*a,**k): pass
+
+          async def emit(*a,**k): pass
+          decky = types.ModuleType('decky')
+          decky.DECKY_USER_HOME = str(home)
+          decky.logger = Logger()
+          decky.emit = emit
+          sys.modules['decky'] = decky
+          os.environ['DECKY_VERSION'] = '3.2.9'
+          os.environ['DECKY_PLUGIN_SETTINGS_DIR'] = str(settings)
+
+          spec = importlib.util.spec_from_file_location('_', root / 'main.py')
+          mod = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          plugin = mod.Plugin()
+
+          async def go():
+              b = await plugin.bootstrap()
+              assert b['ok']
+              port = b['port']
+              pair = await plugin.shortcut_pairing_start()
+              assert pair['ok'] and len(pair['code']) == 6
+
+              # Wrong code is rejected.
+              bad = urllib.request.Request(
+                  f'http://127.0.0.1:{port}/shortcut/pair?code=000000',
+                  data=b'', method='POST'
+              )
+              try:
+                  urllib.request.urlopen(bad, timeout=3)
+                  raise AssertionError('wrong code unexpectedly paired')
+              except urllib.error.HTTPError as e:
+                  assert e.code == 403
+
+              # Correct one-time code returns an authenticated upload endpoint.
+              req = urllib.request.Request(
+                  f'http://127.0.0.1:{port}/shortcut/pair?code={pair["code"]}',
+                  data=b'', method='POST'
+              )
+              with urllib.request.urlopen(req, timeout=3) as r:
+                  paired = json.loads(r.read().decode())
+                  assert r.status == 200 and paired['ok']
+                  assert '/shortcut/share?key=' in paired['endpoint']
+
+              # The code is consumed and cannot be replayed.
+              replay = urllib.request.Request(
+                  f'http://127.0.0.1:{port}/shortcut/pair?code={pair["code"]}',
+                  data=b'', method='POST'
+              )
+              try:
+                  urllib.request.urlopen(replay, timeout=3)
+                  raise AssertionError('pairing code replay unexpectedly succeeded')
+              except urllib.error.HTTPError as e:
+                  assert e.code == 410
+
+              payload = b'hello from generic public shortcut'
+              endpoint = paired['endpoint']
+              upload = urllib.request.Request(
+                  endpoint,
+                  data=payload,
+                  method='POST',
+                  headers={'Content-Type':'text/plain'}
+              )
+              with urllib.request.urlopen(upload, timeout=3) as r:
+                  result = json.loads(r.read().decode())
+                  assert r.status == 200 and result['ok']
+
+              saved = home / 'Downloads' / 'DeckShare' / 'Shortcut Input'
+              assert saved.read_bytes() == payload
+              await plugin._unload()
+
+          asyncio.run(go())
+          print('RC8 one-time pairing + authenticated Share Sheet upload PASS')
+          PY
+
+          python /tmp/test_rc8.py build/DeckyShare
+          rm -rf build/DeckyShare/_fake_home build/DeckyShare/_fake_settings
+          find build/DeckyShare -type d -name __pycache__ -prune -exec rm -rf {} + || true
+          find build/DeckyShare -type f -name '*.pyc' -delete || true
+
+          cd build
+          zip -qr ../DeckyShare-v1.1.0-rc.8.zip DeckyShare
+          cd ..
+
+          python - <<'PY'
+          import zipfile
+          p='DeckyShare-v1.1.0-rc.8.zip'
+          with zipfile.ZipFile(p) as z:
+              assert z.testzip() is None
+              names=set(z.namelist())
+              for required in (
+                  'DeckyShare/main.py',
+                  'DeckyShare/core_main.py',
+                  'DeckyShare/share_sheet.py',
+                  'DeckyShare/dist/index.js',
+                  'DeckyShare/updater.py',
+              ):
+                  assert required in names
+          print('RC8 ZIP validation passed')
+          PY
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.1.0-rc.8 >/dev/null 2>&1; then
+            echo 'v1.1.0-rc.8 already exists; leaving it unchanged.'
+            exit 0
+          fi
+          gh release create v1.1.0-rc.8 DeckyShare-v1.1.0-rc.8.zip \
+            --prerelease \
+            --target v1.1.0-rc8-release \
+            --title 'DeckyShare v1.1.0-rc.8' \
+            --notes 'RC8 adds public-iPhone-Shortcut first-run pairing without bringing back the QR. DeckyShare now generates a one-time six-digit pairing code that expires after 10 minutes and is rate-limited. The generic public Shortcut can exchange that code for the existing authenticated Share Sheet endpoint, then keep using one-tap iOS Share Sheet sends. Built directly from the exact RC7 release asset.'
