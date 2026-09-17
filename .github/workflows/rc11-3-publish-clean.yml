@@ -1,0 +1,30 @@
+name: RC11.3 Clean Publisher
+on:
+  push:
+    branches:
+      - v1.1.0-rc11-release
+    paths:
+      - .github/workflows/rc11-3-publish-clean.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir build
+          gh release download v1.1.0-rc.11.2 --pattern DeckyShare-v1.1.0-rc.11.2.zip
+          unzip -q DeckyShare-v1.1.0-rc.11.2.zip -d build
+          python tools/build_rc11_3.py
+          cd build
+          zip -qr ../DeckyShare-v1.1.0-rc.11.3.zip DeckyShare
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.1.0-rc.11.3 DeckyShare-v1.1.0-rc.11.3.zip --prerelease --target v1.1.0-rc11-release --title "DeckyShare v1.1.0-rc.11.3" --notes "Simplified mini file manager UI. Compact navigation, collapsible storage, and secondary controls hidden until needed. RC11.2 performance fixes and RC11 file operations are preserved."
