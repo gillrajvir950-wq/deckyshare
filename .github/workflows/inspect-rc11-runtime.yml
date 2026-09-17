@@ -1,0 +1,39 @@
+name: Inspect RC11 runtime
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc11-release
+    paths:
+      - .github/workflows/inspect-rc11-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact RC11 package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build
+          mkdir build
+          gh release download v1.1.0-rc.11 --pattern 'DeckyShare-v1.1.0-rc.11.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.11.zip -d build
+          test -f build/DeckyShare/core_main.py
+          test -f build/DeckyShare/dist/index.js
+      - name: Upload runtime source
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc11-runtime-source
+          path: |
+            build/DeckyShare/core_main.py
+            build/DeckyShare/main.py
+            build/DeckyShare/dist/index.js
+            build/DeckyShare/package.json
+          retention-days: 1
