@@ -1,0 +1,36 @@
+name: Inspect DeckyShare updater
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc10-release
+    paths:
+      - .github/workflows/inspect-updater.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download exact RC9 package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download v1.1.0-rc.9 --pattern 'DeckyShare-v1.1.0-rc.9.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.9.zip -d build
+          test -f build/DeckyShare/updater.py
+          test -f build/DeckyShare/main.py
+      - name: Upload updater source
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc9-updater-source
+          path: |
+            build/DeckyShare/updater.py
+            build/DeckyShare/main.py
+            build/DeckyShare/rc1_hardening.py
+          retention-days: 1
