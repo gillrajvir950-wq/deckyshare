@@ -1,0 +1,1 @@
+RC8 will add first-run iPhone Shortcut pairing without putting a QR code back in DeckyShare. It will be built from the exact RC7 release asset, add a temporary one-time six-digit pairing flow, and keep the existing authenticated Share Sheet upload endpoint unchanged.
