@@ -1,0 +1,142 @@
+name: Publish DeckyShare RC10.1 updater hotfix
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc10-1-release
+    paths:
+      - .github/workflows/rc10-1-updater-hotfix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download exact RC10 baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build DeckyShare-v1.1.0-rc.10.zip DeckyShare-v1.1.0-rc.10.1.zip
+          mkdir build
+          gh release download v1.1.0-rc.10 --pattern 'DeckyShare-v1.1.0-rc.10.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.10.zip -d build
+          test -f build/DeckyShare/updater.py
+          test -f build/DeckyShare/main.py
+          test -f build/DeckyShare/dist/index.js
+
+      - name: Fix updater release selection
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          root = Path('build/DeckyShare')
+          p = root / 'updater.py'
+          s = p.read_text()
+          start = s.index('    def _fetch_release(self, include_prerelease: bool = False) -> dict:\n')
+          end = s.index('\n    def check(self, include_prerelease: bool = False, force: bool = False) -> dict:\n', start)
+          replacement = '''    def _fetch_release(self, include_prerelease: bool = False) -> dict:\n        releases = _http_json(f"{API_RELEASES}?per_page=12")\n        if not isinstance(releases, list):\n            raise UpdateError("GitHub returned invalid release data")\n\n        # GitHub's release API ordering is not a version guarantee. Build a\n        # compatible candidate set and explicitly choose the highest SemVer.\n        candidates = []\n        for release in releases:\n            if release.get("draft"):\n                continue\n            if release.get("prerelease") and not include_prerelease:\n                continue\n            tag = normalize_tag(release.get("tag_name"))\n            try:\n                parse_version(tag)\n                asset = _choose_asset(release)\n            except (ValueError, UpdateError):\n                continue\n            candidates.append({\n                "version": tag,\n                "tag": str(release.get("tag_name") or ""),\n                "name": str(release.get("name") or release.get("tag_name") or tag),\n                "prerelease": bool(release.get("prerelease")),\n                "published_at": release.get("published_at"),\n                "html_url": release.get("html_url"),\n                "notes": _safe_release_notes(release.get("body") or ""),\n                "asset": asset,\n            })\n\n        if not candidates:\n            raise UpdateError("No compatible DeckyShare release was found")\n\n        best = candidates[0]\n        for candidate in candidates[1:]:\n            if compare_versions(candidate["version"], best["version"]) > 0:\n                best = candidate\n        return best\n'''
+          s = s[:start] + replacement + s[end:]
+          p.write_text(s)
+
+          p = root / 'package.json'
+          data = json.loads(p.read_text())
+          data['version'] = '1.1.0-rc.10.1'
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          p = root / 'main.py'
+          s = p.read_text()
+          s = re.sub(r'_core\.Handler\.server_version = "DeckyShare/[^"]+"', '_core.Handler.server_version = "DeckyShare/1.1.0-rc10.1"', s, count=1)
+          p.write_text(s)
+
+          p = root / 'dist' / 'index.js'
+          s = p.read_text()
+          if '"RC10"' in s:
+              s = s.replace('"RC10"', '"RC10.1"', 1)
+          p.write_text(s)
+          PY
+
+      - name: Validate RC10.1
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.util, json, pathlib, tempfile
+          root = pathlib.Path('build/DeckyShare')
+          pkg = json.loads((root/'package.json').read_text())
+          assert pkg['version'] == '1.1.0-rc.10.1'
+          up = (root/'updater.py').read_text()
+          assert 'candidates = []' in up
+          assert 'compare_versions(candidate["version"], best["version"]) > 0' in up
+          assert 'DeckyShare/1.1.0-rc10.1' in (root/'main.py').read_text()
+          for p in root.rglob('*.py'):
+              compile(p.read_text(encoding='utf-8'), str(p), 'exec')
+
+          spec = importlib.util.spec_from_file_location('ds_updater_test', root/'updater.py')
+          mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+          assert mod.compare_versions('1.1.0-rc.9','1.1.0-rc.10') < 0
+          assert mod.compare_versions('1.1.0-rc.10','1.1.0-rc.10.1') < 0
+
+          fake = [
+              {'draft':False,'prerelease':True,'tag_name':'v1.1.0-rc.9','name':'RC9','published_at':'','html_url':'','body':'','assets':[{'name':'DeckyShare-v1.1.0-rc.9.zip','size':1,'browser_download_url':'https://github.com/gillrajvir950-wq/deckyshare/releases/download/v1.1.0-rc.9/DeckyShare-v1.1.0-rc.9.zip','digest':'sha256:'+'1'*64}]},
+              {'draft':False,'prerelease':True,'tag_name':'v1.1.0-rc.10.1','name':'RC10.1','published_at':'','html_url':'','body':'','assets':[{'name':'DeckyShare-v1.1.0-rc.10.1.zip','size':1,'browser_download_url':'https://github.com/gillrajvir950-wq/deckyshare/releases/download/v1.1.0-rc.10.1/DeckyShare-v1.1.0-rc.10.1.zip','digest':'sha256:'+'2'*64}]},
+              {'draft':False,'prerelease':True,'tag_name':'v1.1.0-rc.8','name':'RC8','published_at':'','html_url':'','body':'','assets':[{'name':'DeckyShare-v1.1.0-rc.8.zip','size':1,'browser_download_url':'https://github.com/gillrajvir950-wq/deckyshare/releases/download/v1.1.0-rc.8/DeckyShare-v1.1.0-rc.8.zip','digest':'sha256:'+'3'*64}]},
+          ]
+          mod._http_json = lambda *a,**k: fake
+          d = tempfile.TemporaryDirectory()
+          plug = pathlib.Path(d.name)/'DeckyShare'; plug.mkdir()
+          (plug/'package.json').write_text(json.dumps({'version':'1.1.0-rc.9'}))
+          u = mod.Updater(plug)
+          picked = u._fetch_release(include_prerelease=True)
+          assert picked['version'] == '1.1.0-rc.10.1', picked
+          print('RC10.1 updater ordering regression test passed')
+          PY
+
+          cd build && zip -qr ../DeckyShare-v1.1.0-rc.10.1.zip DeckyShare && cd ..
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('DeckyShare-v1.1.0-rc.10.1.zip') as z:
+              assert z.testzip() is None
+          PY
+
+      - name: Publish RC10.1 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view v1.1.0-rc.10.1 >/dev/null 2>&1; then
+            gh release create v1.1.0-rc.10.1 DeckyShare-v1.1.0-rc.10.1.zip \
+              --prerelease \
+              --target v1.1.0-rc10-1-release \
+              --title 'DeckyShare v1.1.0-rc.10.1' \
+              --notes 'Hotfix built from the exact RC10 package. Browse Files upgrades are unchanged. The updater now selects the highest compatible semantic version instead of trusting GitHub release-list ordering.'
+          fi
+
+      - name: Hide obsolete test RC releases from unauthenticated updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate repos/${{ github.repository }}/releases --jq '.[] | select(.prerelease == true and .tag_name != "v1.1.0-rc.10.1") | .id' | while read -r id; do
+            [ -z "$id" ] && continue
+            gh api --method PATCH repos/${{ github.repository }}/releases/$id -F draft=true >/dev/null
+          done
+          echo 'Older prerelease test releases moved to draft.'
+
+      - name: Verify public feed exposes RC10.1
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, urllib.request
+          req=urllib.request.Request('https://api.github.com/repos/gillrajvir950-wq/deckyshare/releases?per_page=12',headers={'User-Agent':'DeckyShare-RC10.1-CI'})
+          data=json.load(urllib.request.urlopen(req,timeout=10))
+          tags=[x.get('tag_name') for x in data]
+          assert 'v1.1.0-rc.10.1' in tags, tags
+          print(tags[:6])
+          PY
