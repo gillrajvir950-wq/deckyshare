@@ -2,8 +2,10 @@ name: Publish DeckyShare RC11.4 compact rows
 
 on:
   push:
-    branches: [v1.1.0-rc11-release]
-    paths: [.github/workflows/rc11-4-compact-rows.yml]
+    branches:
+      - v1.1.0-rc11-release
+    paths:
+      - .github/workflows/rc11-4-compact-rows.yml
   workflow_dispatch:
 
 permissions:
