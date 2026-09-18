@@ -55,7 +55,7 @@ jobs:
           assert 'visibleBrowseItems.slice(0,browseLimit)' in ui
           assert 'Show 50 more' in ui
           assert 'Sort: ${browseSort' in ui
-          assert 'fm_copy' in ui and 'fm_move' in ui and 'fm_trash' in ui
+          assert 'file_copy' in ui and 'file_move' in ui and 'file_trash' in ui
           assert 'utilities/install_plugin' in ui
 
           for f in root.rglob('*.py'):
