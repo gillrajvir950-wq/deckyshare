@@ -63,17 +63,14 @@ jobs:
 
           rm -rf /tmp/deckyshare-store-build
           mkdir -p /tmp/deckyshare-store-build/DeckyShare
-          rsync -a \
-            --exclude '.git/' \
-            --exclude '.github/' \
-            --exclude 'node_modules/' \
-            --exclude 'src/' \
-            --exclude 'tests/' \
-            --exclude '__pycache__/' \
-            --exclude '*.pyc' \
-            --exclude '*.zip' \
-            --exclude 'release/' \
-            ./ /tmp/deckyshare-store-build/DeckyShare/
+          cp \
+            main.py core_main.py decky_http_server.py \
+            exactly_once.py exactly_once_bootstrap.py notification_state.py \
+            rc1_hardening.py restart_hardening.py share_sheet.py \
+            transfer_integrity.py updater.py web_ui.py \
+            package.json plugin.json README.md CHANGELOG.md LICENSE \
+            /tmp/deckyshare-store-build/DeckyShare/
+          cp -R dist py_modules /tmp/deckyshare-store-build/DeckyShare/
           cd /tmp/deckyshare-store-build
           zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.6.zip" DeckyShare
 
@@ -91,3 +88,4 @@ jobs:
               --target store-v1.1.0-prep \
               --title 'DeckyShare v1.1.0-rc.11.6' \
               --notes 'Store-candidate build. Includes RC11.5 native controller navigation plus authenticated LAN sessions, strict session cookies, loopback-only internal endpoints, reproducible frontend source, Store metadata, and automated backend/security tests.'
+          fi
