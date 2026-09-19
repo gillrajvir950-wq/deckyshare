@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.8
+
+- Added a high-contrast blue controller-focus outline and glow to every action.
+- Added visible focus feedback for search, rename, and new-folder text fields.
+- Preserved touch input and Decky's native focus ring.
+
 ## v1.1.0-rc.11.7
 
 - Restored the bundled HTTP compatibility layer required by Decky Loader's frozen Python runtime.
