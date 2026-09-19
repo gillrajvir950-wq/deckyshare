@@ -1,6 +1,7 @@
 import json
 import os
 import urllib.request
+import ssl
 from pathlib import Path
 
 try:
@@ -18,9 +19,20 @@ def _read_local_version():
     except Exception:
         return "0.0.0"
 
+def _ssl_context():
+    candidates = [
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/ssl/cert.pem",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+    ]
+    for cafile in candidates:
+        if os.path.isfile(cafile):
+            return ssl.create_default_context(cafile=cafile)
+    return ssl.create_default_context()
+
 def _get_text(url):
     req = urllib.request.Request(url, headers={"User-Agent": "DeckyShareRemoteDemo"})
-    with urllib.request.urlopen(req, timeout=15) as r:
+    with urllib.request.urlopen(req, timeout=15, context=_ssl_context()) as r:
         return r.read().decode("utf-8")
 
 class Plugin:
