@@ -9,7 +9,7 @@ if str(_PLUGIN_DIR) not in sys.path:
 import core_main as _core
 from exactly_once_bootstrap import install as _install_reliability
 _install_reliability(_core)
-_core.Handler.server_version = "DeckyShare/1.1.0-rc.11.8"
+_core.Handler.server_version = "DeckyShare/1.1.0-rc.11.9"
 _UPDATER = None
 
 
@@ -82,7 +82,7 @@ class Plugin(_core.Plugin):
         try:
             updater = _get_updater()
             include_prerelease = _include_prereleases(updater, payload)
-            return await asyncio.to_thread(updater.install_latest, expected_tag, include_prerelease)
+            return await asyncio.to_thread(updater.prepare_install, expected_tag, include_prerelease)
         except (OSError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
         except Exception as exc:

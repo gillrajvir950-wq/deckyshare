@@ -61,6 +61,29 @@ class ArchiveTests(unittest.TestCase):
 
 
 class InstallTests(unittest.TestCase):
+    def test_prepare_install_hands_verified_asset_to_decky(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            plugin_dir = base / "plugins" / "DeckyShare"
+            user_home = base / "home"
+            make_plugin(plugin_dir, "1.1.0-rc.11.8", "old")
+            user_home.mkdir()
+            manager = UpdateManager(plugin_dir, user_home)
+            manager._fetch_release = lambda include_prerelease=False: {
+                "tag": "v1.1.0-rc.11.9",
+                "version": "1.1.0-rc.11.9",
+                "asset": {
+                    "url": "https://github.com/gillrajvir950-wq/deckyshare/releases/download/v1.1.0-rc.11.9/DeckyShare-v1.1.0-rc.11.9.zip",
+                    "sha256": "a" * 64,
+                },
+            }
+            result = manager.prepare_install("v1.1.0-rc.11.9", True)
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["request_install"])
+            self.assertEqual(result["installer"], "decky-loader")
+            self.assertEqual(result["sha256"], "a" * 64)
+            self.assertEqual(json.loads((plugin_dir / "package.json").read_text())["version"], "1.1.0-rc.11.8")
+
     def test_atomic_install_and_rollback(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)

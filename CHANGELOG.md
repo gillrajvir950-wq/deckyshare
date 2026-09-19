@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.9
+
+- Replaced direct plugin-folder updates with Decky Loader's native installer handoff.
+- Prevented permission-denied failures caused by a running plugin trying to rename itself.
+- Preserved the RC11.8 high-visibility controller focus treatment.
+
 ## v1.1.0-rc.11.8
 
 - Added a high-contrast blue controller-focus outline and glow to every action.

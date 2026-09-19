@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.8 focus visibility fix
+name: Publish DeckyShare RC11.9 native updater fix
 
 on:
   push:
@@ -53,15 +53,17 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.8'
+          assert package['version'] == '1.1.0-rc.11.9'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.8', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'onGamepadFocus', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.9', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'onGamepadFocus', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
               assert marker in backend, marker
           assert 'from decky_http_server import BaseHTTPRequestHandler, ThreadingHTTPServer' in backend
           assert 'socket.getaddrinfo(socket.gethostname()' not in backend
           assert '_START_SERVER_LOCK = threading.Lock()' in backend
+          assert 'updater.prepare_install' in Path('main.py').read_text()
+          assert 'def prepare_install(' in Path('updater.py').read_text()
           PY
 
           rm -rf /tmp/deckyshare-store-build
@@ -80,22 +82,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.8.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.9.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.8.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.9.zip
 
-      - name: Publish RC11.8 prerelease
+      - name: Publish RC11.9 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.8 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.8 DeckyShare-v1.1.0-rc.11.8.zip --clobber
+          if gh release view v1.1.0-rc.11.9 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.9 DeckyShare-v1.1.0-rc.11.9.zip --clobber
           else
-            gh release create v1.1.0-rc.11.8 DeckyShare-v1.1.0-rc.11.8.zip \
+            gh release create v1.1.0-rc.11.9 DeckyShare-v1.1.0-rc.11.9.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.8' \
-              --notes 'Controller-focus visibility fix. Every controller-focusable action and text field now shows a high-contrast blue outline, glow, brightness lift, and slight scale while preserving touch input and Decky native focus behavior. Includes the RC11.7 Decky backend-startup hotfix and RC11.6 authenticated LAN sessions.'
+              --title 'DeckyShare v1.1.0-rc.11.9' \
+              --notes 'Native updater fix. Updates now hand the verified GitHub asset to Decky Loader’s installer instead of trying to rename the running plugin directory, preventing permission-denied failures. Includes RC11.8 high-visibility controller focus and the RC11.7 backend-startup hotfix.'
           fi

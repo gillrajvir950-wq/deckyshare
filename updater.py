@@ -588,6 +588,30 @@ class UpdateManager:
             finally:
                 shutil.rmtree(download_dir, ignore_errors=True)
 
+    def prepare_install(self, expected_tag: str | None = None, include_prerelease: bool = False) -> dict:
+        """Return a verified release handoff for Decky Loader's native installer."""
+        with self._lock:
+            release = self._fetch_release(include_prerelease=include_prerelease)
+            if expected_tag and str(expected_tag) != release["tag"]:
+                raise UpdateError("Release changed since the update check. Check for updates again.")
+            current = self.current_version
+            if compare_versions(release["version"], current) <= 0:
+                raise UpdateError("No newer DeckyShare release is available")
+            asset = release["asset"]
+            return {
+                "ok": True,
+                "request_install": True,
+                "installer": "decky-loader",
+                "artifact": asset["url"],
+                "name": "DeckyShare",
+                "version": release["version"],
+                "tag": release["tag"],
+                "sha256": asset["sha256"],
+                "install_type": 2,
+                "previous": current,
+                "message": "Decky Loader confirmation is required.",
+            }
+
     def rollback(self) -> dict:
         with self._lock:
             state = self._read_state()
