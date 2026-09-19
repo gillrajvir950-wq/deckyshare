@@ -1,6 +1,6 @@
 const React = window.SP_REACT || window.React;
 const h = React.createElement;
-const { useEffect, useRef, useState } = React;
+const { useEffect, useRef, useState } = React;\n\nfunction backend(){ const init=window.__DECKY_SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED_deckyLoaderAPIInit; if(!init||typeof init.connect!=="function") return null; try{return init.connect(2,"DeckyShareRemoteDemo")}catch(e){try{return init.connect(1,"DeckyShareRemoteDemo")}catch(_){return null}} }
 
 function Card({children}) {
   return h("div",{style:{background:"linear-gradient(180deg,rgba(22,42,68,.92),rgba(15,29,49,.92))",border:"1px solid rgba(120,180,255,.20)",borderRadius:14,padding:12,margin:"9px 0"}},children);
@@ -16,7 +16,7 @@ function Panel(){
   const [email,setEmail]=useState("");
   const [state,setState]=useState("idle");
   const [progress,setProgress]=useState(0);
-  const [keyboard,setKeyboard]=useState(false);
+  const [keyboard,setKeyboard]=useState(false);\n  const [upd,setUpd]=useState({busy:false,msg:"Check for updates",available:false});
   const timer=useRef(null);
   useEffect(()=>()=>{if(timer.current)clearInterval(timer.current)},[]);
   const labels={idle:"Ready",finding:"Finding user…",connecting:"Connecting…",sending:"Sending…",sent:"Sent ✓"};
@@ -39,7 +39,7 @@ function Panel(){
       },140);
     },1400);
   }
-  function reset(){if(timer.current)clearInterval(timer.current);timer.current=null;setState("idle");setProgress(0);}
+  function reset(){if(timer.current)clearInterval(timer.current);timer.current=null;setState("idle");setProgress(0);}\n  async function checkUpdate(){ const b=backend(); if(!b){setUpd({busy:false,msg:"Updater backend unavailable",available:false});return;} setUpd({busy:true,msg:"Checking…",available:false}); try{const r=await b.call("updater_status"); if(!r.ok) throw new Error(r.error||"Check failed"); setUpd({busy:false,msg:r.available?`Update ${r.remote} available`:`Up to date • ${r.local}`,available:!!r.available});}catch(e){setUpd({busy:false,msg:"Check failed",available:false});} }\n  async function applyUpdate(){ const b=backend(); if(!b)return; setUpd({busy:true,msg:"Updating…",available:true}); try{const r=await b.call("updater_apply"); if(!r.ok) throw new Error(r.error||"Update failed"); setUpd({busy:false,msg:`Updated to ${r.version} • reload plugin`,available:false});}catch(e){setUpd({busy:false,msg:"Update failed",available:true});} }
   return h("div",{style:{padding:"5px 8px 16px",fontSize:14,color:"white"}},
     h("div",{style:{display:"flex",alignItems:"center",gap:9,padding:"8px 4px 10px"}},
       h("div",{style:{fontSize:28}},"🌐"),
@@ -74,7 +74,7 @@ function Panel(){
             state==="sent"&&h(Btn,{onClick:reset},"Try again")
           )
     ),
-    h("div",{style:{fontSize:10,opacity:.55,textAlign:"center",padding:"7px"}},"Prototype only • no account lookup • no internet transfer • no relay")
+    h(Card,null,\n      h("div",{style:{fontWeight:800,fontSize:15,marginBottom:4}},"Updates"),\n      h("div",{style:{fontSize:11,opacity:.65,marginBottom:6}},"Update the Remote Demo without Desktop Mode or another ZIP."),\n      h(Btn,{onClick:upd.available?applyUpdate:checkUpdate,disabled:upd.busy},upd.msg)\n    ),\n    h("div",{style:{fontSize:10,opacity:.55,textAlign:"center",padding:"7px"}},"Prototype only • no account lookup • no internet transfer • no relay")
   );
 }
 export default function(){
