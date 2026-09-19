@@ -447,6 +447,15 @@ class Handler(BaseHTTPRequestHandler):
         if STATE.receive_dir.resolve() not in target.parents: return self.send_json({"error":"Bad filename"},400)
         part=target.with_name(target.name+".deckshare-part")
         current=part.stat().st_size if part.exists() else 0
+        # A fresh single-stream upload always starts at zero. Discard a stale
+        # partial left by an interrupted/older chunked upload instead of
+        # forcing the browser into a 409/resume loop.
+        if offset == 0 and current:
+            try:
+                part.unlink()
+                current = 0
+            except OSError:
+                return self.send_json({"error":"Could not reset stale partial","received":current},409)
         if offset!=current: return self.send_json({"received":current,"resume":True},409)
         tid=None
         with STATE.lock:
