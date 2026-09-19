@@ -1,5 +1,5 @@
 {
-  "name": "DeckyShare",
+  "name": "DeckyShareRemoteDemo",
   "author": "Gillrv",
   "flags": [],
   "api_version": 1,
@@ -10,6 +10,6 @@
       "transfer",
       "network"
     ],
-    "description": "DeckyShare: wireless two-way file transfer between Steam Deck and phone/PC."
+    "description": "DeckyShare Remote Demo: safe prototype for email-based Send to User UX."
   }
 }
