@@ -31,9 +31,10 @@ function Panel(){
     try{
       const q=await b.call("updater_package"),r=q&&q.result!==undefined?q.result:q;
       if(!r||!r.ok) throw new Error(r?.error||"Update package failed");
-      const init=window.__DECKY_SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED_deckyLoaderAPIInit;
-      if(!init||typeof init.callServerMethod!=="function") throw new Error("Decky installer API unavailable");
-      const z=await init.callServerMethod("utilities/install_plugin",{artifact:r.artifact,name:"DeckyShareRemoteDemo"});
+      const db=window.DeckyBackend;
+      if(!db||typeof db.callable!=="function") throw new Error("DeckyBackend installer API unavailable");
+      const installPlugin=db.callable("utilities/install_plugin");
+      const z=await installPlugin(r.artifact,"DeckyShareRemoteDemo",r.version,"",2);
       const ir=z&&z.result!==undefined?z.result:z;
       if(ir===false||(ir&&ir.success===false)) throw new Error((ir&&ir.error)||"Decky installer rejected update");
       setInfo(v=>({...v,busy:false,ok:true,available:false,local:r.version,msg:"Update handed to Decky installer. Plugin may reload automatically."}));
@@ -66,7 +67,7 @@ function Panel(){
       h("div",{style:{fontSize:12,fontWeight:850}},info.ok?"✓ Connection successful":"! Connection issue"),
       h("div",{style:{fontSize:10,opacity:.7,marginTop:2}},info.ok?"GitHub reachable. Updater backend ready.":info.msg)
     ),
-    h("div",{style:{fontSize:9,opacity:.45,textAlign:"center",marginTop:9}},"Remote Demo • Decky installer updater v0.2.3")
+    h("div",{style:{fontSize:9,opacity:.45,textAlign:"center",marginTop:9}},"Remote Demo • Decky installer updater v0.2.4")
   )
 }
 export default function(){return{name:"DeckyShareRemoteDemo",titleView:h("div",{style:{fontWeight:800}},"DeckyShare Remote Demo"),content:h(Panel),icon:h("div",{style:{fontSize:20}},"🌐")}}
