@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.13
+
+- Removed external controller-focus glow, brightness boost, and scale animation.
+- Replaced the focus effect with a thin border and small inset blue marker.
+- Rebuilt the Browse Files toolbar as a compact always-visible two-row layout.
+- Removed the large ellipsis menu and oversized Locations / Select controls.
+
 ## v1.1.0-rc.11.12
 
 - Reduced the controller focus outline, brightness, scale, and glow intensity.

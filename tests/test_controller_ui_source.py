@@ -20,9 +20,14 @@ def test_compact_toolbar_and_single_focus_ring():
     assert "shared.noFocusRing=true" in source
     assert "shared.noFocusRing=false" not in source
     assert "shared.onGamepadFocus" not in source
+    assert 'boxShadow:"inset 3px 0 0 #66c0f4"' in source
+    assert 'filter:"none"' in source
+    assert 'transform:"none"' in source
+    assert 'className:"deckyshare-compact-action"' in source
+    assert '"⋯"' not in source
 
 
 def test_current_breadcrumb_is_plain_readable_text():
     source = (ROOT / "src" / "index.tsx").read_text(encoding="utf-8")
-    assert 'c.path===path' in source
-    assert '?h("span"' in source
+    assert 'title:path' in source
+    assert 'browseCrumbs.map(c=>c.label).join(" › ")||path' in source

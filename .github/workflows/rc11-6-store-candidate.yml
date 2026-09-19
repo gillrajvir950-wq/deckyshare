@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.12 softer focus
+name: Publish DeckyShare RC11.13 compact toolbar
 
 on:
   push:
@@ -53,9 +53,9 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.12'
+          assert package['version'] == '1.1.0-rc.11.13'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.12', '0 0 6px rgba(80,190,255,.42)', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.13', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
               assert marker in backend, marker
@@ -82,22 +82,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.12.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.13.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.12.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.13.zip
 
-      - name: Publish RC11.12 prerelease
+      - name: Publish RC11.13 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.12 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.12 DeckyShare-v1.1.0-rc.11.12.zip --clobber
+          if gh release view v1.1.0-rc.11.13 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.13 DeckyShare-v1.1.0-rc.11.13.zip --clobber
           else
-            gh release create v1.1.0-rc.11.12 DeckyShare-v1.1.0-rc.11.12.zip \
+            gh release create v1.1.0-rc.11.13 DeckyShare-v1.1.0-rc.11.13.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.12' \
-              --notes 'Softens the controller focus treatment with a thinner outline, smaller lower-opacity glow, and reduced brightness and scale. Includes the RC11.11 semantic-version update discovery fix, making this release the end-to-end Check for update test target.'
+              --title 'DeckyShare v1.1.0-rc.11.13' \
+              --notes 'Removes the external focus glow, brightness boost, and scale effect in favor of a thin border and inset marker. Rebuilds Browse Files with a compact path row and always-visible 26px Locations, Select, and New folder controls; removes the oversized ellipsis menu.'
           fi
