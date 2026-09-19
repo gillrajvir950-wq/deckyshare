@@ -34,7 +34,14 @@ def _ssl_context():
     return ssl.create_default_context()
 
 def _get_text(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "DeckyShareRemoteDemo"})
+    sep = "&" if "?" in url else "?"
+    fresh_url = url + sep + "_deckyshare_cb=" + str(__import__("time").time_ns())
+    req = urllib.request.Request(fresh_url, headers={
+        "User-Agent": "DeckyShareRemoteDemo",
+        "Cache-Control": "no-cache, no-store, max-age=0",
+        "Pragma": "no-cache",
+        "Accept": "application/json,text/plain,*/*",
+    })
     with urllib.request.urlopen(req, timeout=15, context=_ssl_context()) as r:
         return r.read().decode("utf-8")
 
