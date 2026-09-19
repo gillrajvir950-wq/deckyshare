@@ -43,8 +43,8 @@ function Panel(){
     },1400);
   }
   function reset(){if(timer.current)clearInterval(timer.current);timer.current=null;setState("idle");setProgress(0);}
-  async function checkUpdate(){ const b=backend(); if(!b){setUpd({busy:false,msg:"Updater backend unavailable",available:false});return;} setUpd({busy:true,msg:"Checking…",available:false}); try{const r=await b.call("updater_status"); if(!r.ok) throw new Error(r.error||"Check failed"); setUpd({busy:false,msg:r.available?`Update ${r.remote} available`:`Up to date • ${r.local}`,available:!!r.available});}catch(e){setUpd({busy:false,msg:"Check failed",available:false});} }
-  async function applyUpdate(){ const b=backend(); if(!b)return; setUpd({busy:true,msg:"Updating…",available:true}); try{const r=await b.call("updater_apply"); if(!r.ok) throw new Error(r.error||"Update failed"); setUpd({busy:false,msg:`Updated to ${r.version} • reload plugin`,available:false});}catch(e){setUpd({busy:false,msg:"Update failed",available:true});} }
+  async function checkUpdate(){ const b=backend(); if(!b){setUpd({busy:false,msg:"Backend not connected",available:false});return;} setUpd({busy:true,msg:"Checking…",available:false}); try{const raw=await b.call("updater_status"); const r=(raw&&raw.result!==undefined)?raw.result:raw; if(!r.ok) throw new Error(r.error||"Check failed"); setUpd({busy:false,msg:r.available?`Update ${r.remote} available`:`Up to date • ${r.local}`,available:!!r.available});}catch(e){setUpd({busy:false,msg:"Check failed",available:false});} }
+  async function applyUpdate(){ const b=backend(); if(!b)return; setUpd({busy:true,msg:"Updating…",available:true}); try{const raw=await b.call("updater_apply"); const r=(raw&&raw.result!==undefined)?raw.result:raw; if(!r.ok) throw new Error(r.error||"Update failed"); setUpd({busy:false,msg:`Updated to ${r.version} • reload plugin`,available:false});}catch(e){setUpd({busy:false,msg:"Update failed",available:true});} }
   return h("div",{style:{padding:"5px 8px 16px",fontSize:14,color:"white"}},
     h("div",{style:{display:"flex",alignItems:"center",gap:9,padding:"8px 4px 10px"}},
       h("div",{style:{fontSize:28}},"🌐"),
