@@ -190,8 +190,8 @@ function makePanel(){
   let backendAPI=null;
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
-    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false),[shortcutPair,setShortcutPair]=useState(null),[shortcutPairBusy,setShortcutPairBusy]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name"),[fmStorage,setFmStorage]=useState(null),[fmSelect,setFmSelect]=useState(false),[fmPicked,setFmPicked]=useState([]),[fmClip,setFmClip]=useState(null),[fmBusy,setFmBusy]=useState(false),[fmNew,setFmNew]=useState(""),[fmRename,setFmRename]=useState(null),[fmRenameValue,setFmRenameValue]=useState(""),[fmInfo,setFmInfo]=useState(null),[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50),[fmMenu,setFmMenu]=useState(false);
-    const [openSections,setOpenSections]=useState({android:false,browse:true,received:false,transfers:false,notifications:false,updates:false,support:false});
+    const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name"),[fmStorage,setFmStorage]=useState(null),[fmSelect,setFmSelect]=useState(false),[fmPicked,setFmPicked]=useState([]),[fmClip,setFmClip]=useState(null),[fmBusy,setFmBusy]=useState(false),[fmNew,setFmNew]=useState(""),[fmRename,setFmRename]=useState(null),[fmRenameValue,setFmRenameValue]=useState(""),[fmInfo,setFmInfo]=useState(null),[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50),[fmMenu,setFmMenu]=useState(false);
+    const [openSections,setOpenSections]=useState({browse:true,received:false,transfers:false,notifications:false,updates:false,support:false});
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
     const firstBrowseItemRef=useRef(null);
@@ -366,17 +366,6 @@ function makePanel(){
       finally{setUpdateBusy(false);}
     }
 
-    async function startShortcutPairing(){
-      if(shortcutPairBusy)return;
-      setShortcutPairBusy(true);
-      try{
-        const r=await call("shortcut_pairing_start");
-        if(!r||!r.ok)throw new Error(r&&r.error||"Could not start pairing");
-        setShortcutPair(r);setErr("");
-      }catch(e){setErr("Share Sheet pairing: "+String(e&&e.message||e));}
-      finally{setShortcutPairBusy(false);}
-    }
-
     useEffect(()=>{bootstrap();},[]);
     useEffect(()=>{if(!status)return;const t=setInterval(refreshStatus,path?4000:1500);return()=>clearInterval(t);},[!!status,!!path]);
     useEffect(()=>{if(!path||status&&status.selected)return;const t=setTimeout(()=>{try{if(firstBrowseItemRef.current&&typeof firstBrowseItemRef.current.focus==="function")firstBrowseItemRef.current.focus();}catch(e){}},80);return()=>clearTimeout(t);},[path,items,status&&status.selected]);
@@ -396,7 +385,7 @@ function makePanel(){
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
       h("style",null,".deckyshare-root .deckyshare-compact-action{min-width:0!important;min-height:26px!important;height:26px!important;padding:2px 5px!important;display:flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;overflow:hidden!important}.deckyshare-root .deckyshare-compact-action>div{min-width:0!important;min-height:0!important;height:100%!important;width:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;text-overflow:ellipsis!important}.deckyshare-root .deckyshare-action:focus{animation:none!important}"),
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.16")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.17")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
 
       h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
         h(SectionTitle,{icon:"📡",title:"Connect phone / PC",sub:"Scan the QR code or open the local address"}),
@@ -409,18 +398,6 @@ function makePanel(){
           displayQr&&h("div",{style:{width:91,textAlign:"center"}},h("img",{src:displayQr,style:{width:80,height:80,background:"white",padding:4,borderRadius:9}}),h("div",{style:{fontSize:9,opacity:.55,marginTop:2}},"Scan QR"))
         ),
         conns.length>1&&h("div",{style:{marginTop:9}},h("div",{style:{fontSize:10,opacity:.52,marginBottom:4}},"Network"),conns.map((c,i)=>h(DialogButton,{key:c.ip,onClick:()=>{setConnIndex(i);setCopied(false);},style:{padding:"5px 7px",margin:"2px 3px 2px 0",borderRadius:7,border:i===connIndex?"1px solid #66c0f4":"1px solid rgba(255,255,255,.10)",background:i===connIndex?"rgba(102,192,244,.16)":"transparent",color:"white",fontSize:10}},c.interface)))
-      ),
-
-      h(AccordionCard,{icon:"📱",title:"Android Share Sheet",sub:"Pair once, then Share → DeckyShare",open:openSections.android,onToggle:()=>toggleSection("android"),style:{border:"1px solid rgba(97,211,145,.18)"}},
-        shortcutPair&&shortcutPair.active&&h("div",{style:{padding:10,borderRadius:10,background:"rgba(65,190,120,.09)",border:"1px solid rgba(90,220,145,.18)",marginBottom:8}},
-          h("div",{style:{fontSize:9,opacity:.58}},"Deck address"),
-          h("div",{style:{fontSize:11,fontWeight:730,wordBreak:"break-all",marginTop:2}},String(shortcutPair.address||"").replace(/^https?:\/\//,"")),
-          h("div",{style:{fontSize:9,opacity:.58,marginTop:8}},"One-time pairing code"),
-          h("div",{style:{fontSize:25,fontWeight:850,letterSpacing:5,color:"#9ee6bf",marginTop:2}},shortcutPair.code),
-          h("div",{style:{fontSize:9,opacity:.5,marginTop:4}},"Expires in 10 minutes and works once.")
-        ),
-        h(MiniButton,{onClick:startShortcutPairing},shortcutPairBusy?"Starting…":shortcutPair&&shortcutPair.active?"Generate new code":"Start pairing"),
-        h("div",{style:{fontSize:9,opacity:.52,lineHeight:1.45,marginTop:7}},"Install the DeckyShare Android app, enter this address and code, then use Android Photos or Files → Share → DeckyShare.")
       ),
 
       h(AccordionCard,{icon:"📁",title:"Browse Files",sub:path?(browseCrumbs.map(c=>c.label).join(" › ")||"Current folder"):"Choose a location",open:openSections.browse,onToggle:()=>toggleSection("browse"),style:{border:"1px solid rgba(120,180,255,.19)"}},

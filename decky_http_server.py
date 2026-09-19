@@ -1,11 +1,32 @@
 """HTTP compatibility layer for DeckyShare on frozen Decky Python."""
 from __future__ import annotations
 import email.utils
+import io
 import socket
 import sys
 import threading
 from http import HTTPStatus
 import http.client
+
+SOCKET_BUFFER_BYTES = 4 * 1024 * 1024
+
+
+class _SocketWriter(io.BufferedIOBase):
+    """Unbuffered writer whose write contract always sends the full payload."""
+
+    def __init__(self, sock):
+        self._sock = sock
+
+    def writable(self):
+        return True
+
+    def write(self, data):
+        view = memoryview(data)
+        self._sock.sendall(view)
+        return len(view)
+
+    def fileno(self):
+        return self._sock.fileno()
 
 class ThreadingHTTPServer:
     daemon_threads = True
@@ -26,6 +47,9 @@ class ThreadingHTTPServer:
         while not self._shutdown.is_set():
             try:
                 request, client_address = self.socket.accept()
+                request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                request.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, SOCKET_BUFFER_BYTES)
+                request.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, SOCKET_BUFFER_BYTES)
             except socket.timeout:
                 continue
             except OSError:
@@ -60,7 +84,7 @@ class BaseHTTPRequestHandler:
         self.request=request; self.connection=request; self.client_address=client_address; self.server=server
         self.close_connection=True; self.requestline=''; self.request_version=self.default_request_version
         self.command=None; self.path=''; self._headers_buffer=[]
-        self.rfile=request.makefile('rb',buffering=0); self.wfile=request.makefile('wb',buffering=0)
+        self.rfile=request.makefile('rb',buffering=256*1024); self.wfile=_SocketWriter(request)
         try: self.handle()
         finally:
             try: self.wfile.flush()

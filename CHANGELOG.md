@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.17
+
+- Replaced partial socket writes with reliable `sendall` streaming.
+- Added larger TCP send/receive buffers and buffered request reads.
+- Increased backend upload/download streaming chunks from 1 MiB to 4 MiB.
+- Removed the Android Share Sheet pairing section from the Deck panel while keeping already-paired Android clients compatible.
+
 ## v1.1.0-rc.11.16
 
 - Added a dedicated responsive phone layout for the DeckyShare browser page.

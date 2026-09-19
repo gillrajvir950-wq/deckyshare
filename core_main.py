@@ -520,7 +520,7 @@ class Handler(BaseHTTPRequestHandler):
                 f.seek(start)
                 remain = length
                 while remain:
-                    chunk = f.read(min(1024 * 1024, remain))
+                    chunk = f.read(min(4 * 1024 * 1024, remain))
                     if not chunk:
                         break
                     self.wfile.write(chunk)
@@ -637,7 +637,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             with open(part, "ab", buffering=0) as f:
                 while remain:
-                    chunk = self.rfile.read(min(1024 * 1024, remain))
+                    chunk = self.rfile.read(min(4 * 1024 * 1024, remain))
                     if not chunk:
                         break
                     f.write(chunk)

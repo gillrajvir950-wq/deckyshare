@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.16 responsive web layout
+name: Publish DeckyShare RC11.17 transfer performance
 
 on:
   push:
@@ -53,10 +53,11 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.16'
+          assert package['version'] == '1.1.0-rc.11.17'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.16', 'Android Share Sheet', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.17', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
+          assert 'Android Share Sheet' not in ui
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
               assert marker in backend, marker
           assert 'from decky_http_server import BaseHTTPRequestHandler, ThreadingHTTPServer' in backend
@@ -71,6 +72,11 @@ jobs:
           assert 'finishAndRemoveTask()' in android
           assert 'setFixedLengthStreamingMode(item.size)' in service
           assert 'startForeground(NOTIFICATION_ID' in service
+          transport = Path('decky_http_server.py').read_text()
+          assert 'sendall(view)' in transport
+          assert 'SOCKET_BUFFER_BYTES = 4 * 1024 * 1024' in transport
+          assert "buffering=256*1024" in transport
+          assert 'min(4 * 1024 * 1024, remain)' in backend
           web = Path('web_ui.py').read_text()
           for marker in ('@media(max-width:700px)', '@media(min-width:701px)', 'safe-area-inset-bottom', 'download-row'):
               assert marker in web, marker
@@ -92,22 +98,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.16.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.17.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.16.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.17.zip
 
-      - name: Publish RC11.16 prerelease
+      - name: Publish RC11.17 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.16 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.16 DeckyShare-v1.1.0-rc.11.16.zip --clobber
+          if gh release view v1.1.0-rc.11.17 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.17 DeckyShare-v1.1.0-rc.11.17.zip --clobber
           else
-            gh release create v1.1.0-rc.11.16 DeckyShare-v1.1.0-rc.11.16.zip \
+            gh release create v1.1.0-rc.11.17 DeckyShare-v1.1.0-rc.11.17.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.16' \
-              --notes 'Responsive browser update. Phones now receive a compact single-column layout with full-width touch controls, safe-area spacing and improved long-name wrapping, while PCs retain the wider two-column desktop dashboard. The existing Android v0.2 app remains compatible and does not need reinstalling.'
+              --title 'DeckyShare v1.1.0-rc.11.17' \
+              --notes 'Bulk-transfer performance update. Uses reliable sendall socket writes, 4 MiB TCP send/receive buffers, buffered request reads and 4 MiB backend transfer chunks. Removes the Android Share Sheet pairing card from the Deck panel while keeping already-paired Android clients compatible.'
           fi
