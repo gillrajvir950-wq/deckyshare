@@ -33,6 +33,16 @@ def test_browser_cancel_aborts_active_upload_immediately():
     assert "Cancelling after current chunk" not in page
 
 
+def test_browser_prepares_crc_off_main_thread_and_pipelines_next_chunk():
+    page = html_page("http://192.168.1.20:8787")
+
+    assert "new Worker(" in page
+    assert "crc32Async(buffer)" in page
+    assert "prepareUploadChunk(f,off,chunk)" in page
+    assert "nextPromise=current.end<f.size?prepareUploadChunk" in page
+    assert "body:current.blob" in page
+
+
 def test_immediate_cancel_survives_exactly_once_upload_wrapper():
     page = _wrap_html_page(html_page)("http://192.168.1.20:8787")
 

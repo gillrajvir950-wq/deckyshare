@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.21
+
+- Move browser CRC32 calculation into a Web Worker when supported.
+- Prepare the next 4 MiB chunk while the current chunk uploads, improving Safari/iPhone throughput without parallel server writes.
+- Preserve bounded memory use, verified sequential offsets, pause/resume, retry, and immediate cancel behaviour.
+
 ## v1.1.0-rc.11.20
 
 - Cancel now marks an active transfer cancelled without waiting for its upload lock.

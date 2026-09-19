@@ -331,10 +331,10 @@ def _wrap_html_page(original):
         old_cancel = "async function cancelPartial(name){try{await api('/api/cancel-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});}catch(e){}}"
         new_cancel = "async function cancelPartial(name,uploadId){try{await api('/api/cancel-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,upload_id:uploadId})});}catch(e){}}"
         page = page.replace(old_cancel, new_cancel)
-        old_start = "async function uploadOne(f,onProgress,onRetry){let chunk=4*1024*1024,off=0,lastName=f.name,retries=0,first=true;"
-        new_start = "async function uploadOne(f,onProgress,onRetry){const uploadId=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():('ds_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12));let chunk=4*1024*1024,off=0,lastName=f.name,retries=0,first=true;"
+        old_start = "async function uploadOne(f,onProgress,onRetry){let chunk=4*1024*1024,off=0,lastName=f.name,retries=0,first=true,prepared=null;"
+        new_start = "async function uploadOne(f,onProgress,onRetry){const uploadId=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():('ds_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12));let chunk=4*1024*1024,off=0,lastName=f.name,retries=0,first=true,prepared=null;"
         page = page.replace(old_start, new_start)
-        page = page.replace("'X-DeckyShare-CRC32':sum", "'X-DeckyShare-CRC32':sum,'X-DeckyShare-Upload-ID':uploadId")
+        page = page.replace("'X-DeckyShare-CRC32':current.sum", "'X-DeckyShare-CRC32':current.sum,'X-DeckyShare-Upload-ID':uploadId")
         page = page.replace("cancelPartial(f.name)", "cancelPartial(f.name,uploadId)")
         if "X-DeckyShare-Upload-ID" not in page or "upload_id:uploadId" not in page:
             raise RuntimeError("DeckyShare upload-id UI patch did not apply")
