@@ -97,6 +97,7 @@ def _replay_response(core, handler, record, length):
 
 def _install_put(core):
     def do_PUT(self):
+        request_started = time.perf_counter()
         u = core.urllib.parse.urlsplit(self.path)
         if not self.token_ok():
             self.send_error(403)
@@ -248,6 +249,7 @@ def _install_put(core):
                     "name": saved_target.name if complete else name,
                     "verified": bool(expected_crc),
                     "upload_id": upload_id,
+                    "server_ms": round((time.perf_counter() - request_started) * 1000, 1),
                 })
             except _UploadCancelled:
                 _rollback_part(part, chunk_start)

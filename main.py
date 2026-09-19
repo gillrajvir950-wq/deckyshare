@@ -9,7 +9,7 @@ if str(_PLUGIN_DIR) not in sys.path:
 import core_main as _core
 from exactly_once_bootstrap import install as _install_reliability
 _install_reliability(_core)
-_core.Handler.server_version = "DeckyShare/1.1.0-rc.11.22"
+_core.Handler.server_version = "DeckyShare/1.1.0-rc.11.23"
 _UPDATER = None
 
 

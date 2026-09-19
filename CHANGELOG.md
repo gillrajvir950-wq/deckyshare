@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.0-rc.11.23
+
+- Show per-chunk Read, CRC, browser Upload, and server processing timings on the transfer page.
+- Return server-side request timing with successful upload chunks for direct iPhone/Safari bottleneck diagnosis.
+
 ## v1.1.0-rc.11.22
 
 - Keep HTTP/1.1 connections alive across sequential browser chunks instead of rebuilding TCP for every 4 MiB request.

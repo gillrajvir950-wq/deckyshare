@@ -41,6 +41,11 @@ def test_browser_prepares_crc_off_main_thread_and_pipelines_next_chunk():
     assert "prepareUploadChunk(f,off,chunk)" in page
     assert "nextPromise=current.end<f.size?prepareUploadChunk" in page
     assert "body:current.blob" in page
+    assert 'id="diag"' in page
+    assert "Chunk diagnostic" in page
+    assert "current.readMs" in page
+    assert "current.crcMs" in page
+    assert "j.server_ms" in page
 
 
 def test_immediate_cancel_survives_exactly_once_upload_wrapper():
