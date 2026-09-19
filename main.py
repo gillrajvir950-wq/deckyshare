@@ -2,6 +2,9 @@ import json
 import os
 import urllib.request
 import ssl
+import io
+import zipfile
+import tempfile
 from pathlib import Path
 
 try:
@@ -46,26 +49,23 @@ class Plugin:
             decky.logger.exception("Remote Demo update check failed")
             return {"ok": False, "local": local, "error": str(e)}
 
-    async def updater_apply(self, *args, **kwargs):
+    async def updater_package(self, *args, **kwargs):
         try:
             manifest = json.loads(_get_text(BASE + "/update.json"))
             version = str(manifest["version"])
-            files = manifest.get("files", ["dist/index.js", "main.py"])
-            staged = {}
-            for rel in files:
-                if rel.startswith("/") or ".." in Path(rel).parts:
-                    raise ValueError("Unsafe update path")
-                staged[rel] = _get_text(BASE + "/" + rel)
-            for rel, content in staged.items():
-                target = PLUGIN_DIR / rel
-                target.parent.mkdir(parents=True, exist_ok=True)
-                tmp = target.with_suffix(target.suffix + ".update")
-                tmp.write_text(content, encoding="utf-8")
-                os.replace(tmp, target)
-            LOCAL_VERSION_FILE.write_text(version + "\n", encoding="utf-8")
-            return {"ok": True, "version": version, "reload_required": True}
+            files = manifest.get("files", ["dist/index.js", "main.py", "plugin.json"])
+            tmpdir = Path(tempfile.gettempdir()) / "deckyshare-remote-updater"
+            tmpdir.mkdir(parents=True, exist_ok=True)
+            artifact = tmpdir / ("DeckyShareRemoteDemo-" + version + ".zip")
+            with zipfile.ZipFile(artifact, "w", zipfile.ZIP_DEFLATED) as z:
+                for rel in files:
+                    if rel.startswith("/") or ".." in Path(rel).parts:
+                        raise ValueError("Unsafe update path")
+                    z.writestr("DeckyShareRemoteDemo/" + rel, _get_text(BASE + "/" + rel))
+                z.writestr("DeckyShareRemoteDemo/local_version.txt", version + "\n")
+            return {"ok": True, "version": version, "artifact": str(artifact)}
         except Exception as e:
-            decky.logger.exception("Remote Demo update failed")
+            decky.logger.exception("Remote Demo update package failed")
             return {"ok": False, "error": str(e)}
 
     async def _main(self):
