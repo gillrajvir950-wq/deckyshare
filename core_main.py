@@ -23,6 +23,15 @@ from transfer_integrity import (
     validate_upload_window,
 )
 from web_ui import html_page
+from share_sheet import (
+    authorized as share_sheet_authorized,
+    load_or_create_share_key,
+    pair_request as share_sheet_pair_request,
+    pairing_status as share_sheet_pairing_status,
+    receive_raw as receive_share_sheet_raw,
+    setup_page as share_sheet_setup_page,
+    start_pairing as start_share_sheet_pairing,
+)
 
 try:
     import decky  # Current Decky Loader
@@ -158,6 +167,10 @@ class State:
         self.server = None
         self.thread = None
         self.loop = None
+        self.share_key = load_or_create_share_key(decky)
+        self.shortcut_pairing_code = None
+        self.shortcut_pairing_expires = 0.0
+        self.shortcut_pairing_attempts = {}
 
     def new_transfer(self, direction, name, total):
         tid = secrets.token_hex(6)
@@ -391,6 +404,21 @@ class Handler(BaseHTTPRequestHandler):
                 st = STATE.selected.stat()
                 sel = {"name": STATE.selected.name, "path": str(STATE.selected), "size": st.st_size, "size_human": human_size(st.st_size)}
             return self.send_json({"token": STATE.token, "address": addr, "qr": f"http://127.0.0.1:{STATE.port}/qr.svg", "selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir)})
+        if u.path == "/share-sheet/setup":
+            q = urllib.parse.parse_qs(u.query)
+            provided = str((q.get("key") or [""])[0])
+            if not share_sheet_authorized(provided, STATE.share_key):
+                self.send_error(403, "Invalid DeckyShare Share Sheet key")
+                return
+            base_url = f"http://{local_ip()}:{STATE.port}"
+            data = share_sheet_setup_page(base_url, STATE.share_key).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if not self.token_ok():
             self.send_error(403, "Invalid DeckyShare session")
             return
@@ -508,6 +536,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urllib.parse.urlsplit(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        base_url = f"http://{local_ip()}:{STATE.port}"
+        if u.path == "/shortcut/pair":
+            result, status = share_sheet_pair_request(
+                STATE,
+                q,
+                self.client_address[0] if self.client_address else "unknown",
+                base_url,
+                STATE.share_key,
+            )
+            return self.send_json(result, status)
+        if u.path == "/shortcut/share":
+            result, status = receive_share_sheet_raw(
+                self,
+                STATE,
+                q,
+                STATE.share_key,
+                unique_destination_path,
+                notify_file_received,
+            )
+            return self.send_json(result, status)
         if not self.token_ok():
             self.send_error(403)
             return
@@ -739,6 +788,16 @@ class Plugin:
             "receive_dir": str(STATE.receive_dir),
             "received": STATE.received_snapshot(),
         }
+
+    async def shortcut_pairing_start(self, *args, **kwargs):
+        if STATE.server is None:
+            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)
+        return start_share_sheet_pairing(STATE, f"http://{local_ip()}:{STATE.port}")
+
+    async def shortcut_pairing_status(self, *args, **kwargs):
+        if STATE.server is None:
+            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)
+        return share_sheet_pairing_status(STATE, f"http://{local_ip()}:{STATE.port}")
 
     async def browse(self, path=None, *args, **kwargs):
         p = extract_path(path, args, kwargs)

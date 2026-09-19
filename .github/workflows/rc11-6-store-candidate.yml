@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.13 compact toolbar
+name: Publish DeckyShare RC11.14 Android Share Sheet
 
 on:
   push:
@@ -28,6 +28,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
       - name: Install and build frontend
         run: |
           set -euo pipefail
@@ -42,6 +51,13 @@ jobs:
           python -m pytest -q
           python -m py_compile *.py
 
+      - name: Build Android Share Sheet APK
+        run: |
+          set -euo pipefail
+          gradle -p android :app:assembleDebug --no-daemon
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk DeckyShare-Android-v0.1.0.apk
+
       - name: Validate metadata and package
         run: |
           set -euo pipefail
@@ -53,9 +69,9 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.13'
+          assert package['version'] == '1.1.0-rc.11.14'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.13', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.14', 'Android Share Sheet', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
               assert marker in backend, marker
@@ -64,6 +80,9 @@ jobs:
           assert '_START_SERVER_LOCK = threading.Lock()' in backend
           assert 'updater.prepare_install' in Path('main.py').read_text()
           assert 'def prepare_install(' in Path('updater.py').read_text()
+          android = Path('android/app/src/main/java/com/deckyshare/android/MainActivity.java').read_text()
+          assert 'ACTION_SEND_MULTIPLE' in android
+          assert 'setFixedLengthStreamingMode(item.size)' in android
           PY
 
           rm -rf /tmp/deckyshare-store-build
@@ -82,22 +101,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.13.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.14.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.13.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.14.zip
 
-      - name: Publish RC11.13 prerelease
+      - name: Publish RC11.14 prerelease and Android APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.13 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.13 DeckyShare-v1.1.0-rc.11.13.zip --clobber
+          if gh release view v1.1.0-rc.11.14 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.14 DeckyShare-v1.1.0-rc.11.14.zip DeckyShare-Android-v0.1.0.apk --clobber
           else
-            gh release create v1.1.0-rc.11.13 DeckyShare-v1.1.0-rc.11.13.zip \
+            gh release create v1.1.0-rc.11.14 DeckyShare-v1.1.0-rc.11.14.zip DeckyShare-Android-v0.1.0.apk \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.13' \
-              --notes 'Removes the external focus glow, brightness boost, and scale effect in favor of a thin border and inset marker. Rebuilds Browse Files with a compact path row and always-visible 26px Locations, Select, and New folder controls; removes the oversized ellipsis menu.'
+              --title 'DeckyShare v1.1.0-rc.11.14' \
+              --notes 'First Android Share Sheet test build. Adds one-time six-digit pairing on the Deck, authenticated phone upload routes, and an installable Android companion APK registered for single and multiple shares. Android uploads stream through a 1 MiB buffer. This is an early device-test build; resumable large-file hardening follows after basic pairing and Share target validation.'
           fi

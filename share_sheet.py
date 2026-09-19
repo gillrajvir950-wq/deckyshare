@@ -19,7 +19,7 @@ def _settings_dir(decky) -> Path:
 
 def load_or_create_share_key(decky) -> str:
     base = _settings_dir(decky)
-    path = base / "iphone-share-key.txt"
+    path = base / "iphone-share-key.txt"  # Legacy filename; shared by iOS and Android.
     try:
         value = path.read_text(encoding="utf-8").strip()
         if 24 <= len(value) <= 128:
@@ -93,7 +93,7 @@ def setup_info(base_url: str, key: str, qr_data_uri_fn=None) -> dict:
     base = str(base_url or "").rstrip("/") + "/"
     quoted = urllib.parse.quote(key, safe="")
     endpoint = f"{base}shortcut/share?key={quoted}&name=Shortcut%20Input"
-    setup_url = f"{base}iphone?key={quoted}"
+    setup_url = f"{base}share-sheet/setup?key={quoted}"
     result = {"enabled": True, "endpoint": endpoint, "setup_url": setup_url, "key_hint": key[-6:] if key else ""}
     return result
 
@@ -155,7 +155,7 @@ def receive_raw(handler, state, query: dict, key: str, unique_destination_path, 
         state.update_transfer(tid, received, "complete")
         item = state.record_received(final_target)
         notify_file_received(item)
-        return {"ok": True, "name": final_target.name, "path": str(final_target), "size": received, "source": "iphone-share-sheet"}, 200
+        return {"ok": True, "name": final_target.name, "path": str(final_target), "size": received, "source": "share-sheet"}, 200
     except OSError as exc:
         state.update_transfer(tid, received, "failed")
         try:
@@ -194,6 +194,7 @@ def start_pairing(state, base_url: str) -> dict:
         state.shortcut_pairing_attempts = {}
     return {
         "ok": True,
+        "active": True,
         "code": code,
         "address": str(base_url or "").rstrip("/"),
         "expires_at": now + PAIRING_TTL_SECONDS,

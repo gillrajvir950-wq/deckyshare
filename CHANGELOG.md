@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.14
+
+- Added authenticated one-time pairing routes for phone Share Sheet clients.
+- Added the Android Share Sheet pairing panel to the Decky plugin.
+- Added the first native Android companion APK with single/multi-item share targets.
+- Android uploads stream through a 1 MiB buffer instead of loading the full file into memory.
+
 ## v1.1.0-rc.11.13
 
 - Removed external controller-focus glow, brightness boost, and scale animation.
