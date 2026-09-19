@@ -70,7 +70,12 @@ jobs:
             transfer_integrity.py updater.py web_ui.py \
             package.json plugin.json README.md CHANGELOG.md LICENSE \
             /tmp/deckyshare-store-build/DeckyShare/
-          cp -R dist py_modules /tmp/deckyshare-store-build/DeckyShare/
+          cp -R dist /tmp/deckyshare-store-build/DeckyShare/
+          mkdir -p /tmp/deckyshare-store-build/DeckyShare/py_modules
+          rsync -a \
+            --exclude '__pycache__/' \
+            --exclude '*.pyc' \
+            py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
           zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.6.zip" DeckyShare
 
@@ -82,7 +87,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if ! gh release view v1.1.0-rc.11.6 >/dev/null 2>&1; then
+          if gh release view v1.1.0-rc.11.6 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.6 DeckyShare-v1.1.0-rc.11.6.zip --clobber
+          else
             gh release create v1.1.0-rc.11.6 DeckyShare-v1.1.0-rc.11.6.zip \
               --prerelease \
               --target store-v1.1.0-prep \
