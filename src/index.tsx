@@ -8,13 +8,13 @@ const Focusable = DeckyUI.Focusable || "div";
 const BaseTextField = DeckyUI.TextField || "input";
 
 const CONTROLLER_FOCUS_STYLE = {
-  outline:"3px solid #78d5ff",
-  outlineOffset:2,
-  boxShadow:"0 0 0 2px rgba(5,18,32,.95),0 0 18px rgba(80,190,255,.95)",
-  filter:"brightness(1.48)",
+  outline:"2px solid #70bde6",
+  outlineOffset:1,
+  boxShadow:"0 0 0 1px rgba(5,18,32,.82),0 0 6px rgba(80,190,255,.42)",
+  filter:"brightness(1.12)",
   position:"relative",
-  zIndex:8,
-  transform:"scale(1.012)"
+  zIndex:3,
+  transform:"scale(1.003)"
 };
 
 const DialogButton = forwardRef(function DeckyShareDialogButton(props,ref){
@@ -394,7 +394,7 @@ function makePanel(){
     if(!status)return h("div",{style:{padding:12}},"Starting DeckyShare backend…");
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.11")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.12")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
 
       h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
         h(SectionTitle,{icon:"📡",title:"Connect phone / PC",sub:"Scan the QR code or open the local address"}),

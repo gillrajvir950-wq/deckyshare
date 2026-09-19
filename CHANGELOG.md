@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.0-rc.11.12
+
+- Reduced the controller focus outline, brightness, scale, and glow intensity.
+- Kept a clear blue focus indicator without the oversized luminous bar effect.
+
 ## v1.1.0-rc.11.11
 
 - Fixed update discovery when GitHub returns prereleases out of semantic-version order.
