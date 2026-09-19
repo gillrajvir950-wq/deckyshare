@@ -1,5 +1,6 @@
 package com.deckyshare.android;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.Intent;
@@ -8,6 +9,8 @@ import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.content.pm.PackageManager;
 import android.provider.OpenableColumns;
 import android.view.View;
 import android.widget.Button;
@@ -15,6 +18,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 
@@ -43,13 +47,24 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         buildUi();
-        acceptIntent(getIntent());
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pendingShare = getIntent();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 7);
+        } else {
+            acceptIntent(getIntent());
+        }
     }
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         acceptIntent(intent);
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == 7 && pendingShare != null) acceptIntent(pendingShare);
     }
 
     private void buildUi() {
@@ -130,24 +145,9 @@ public final class MainActivity extends Activity {
 
     private void sendIntent(Intent intent) {
         pendingShare = null;
-        List<SharedItem> items = sharedItems(intent);
-        if (items.isEmpty()) {
-            showStatus("This shared item could not be read.", true);
-            return;
-        }
-        progress.setVisibility(View.VISIBLE);
-        progress.setProgress(0);
-        worker.execute(() -> {
-            try {
-                for (int i = 0; i < items.size(); i++) upload(items.get(i), i, items.size());
-                runOnUiThread(() -> {
-                    progress.setProgress(1000);
-                    showStatus("Sent " + items.size() + (items.size() == 1 ? " item" : " items") + " to Steam Deck.", false);
-                });
-            } catch (Exception error) {
-                runOnUiThread(() -> showStatus(error.getMessage(), true));
-            }
-        });
+        ShareUploadService.enqueue(this, intent);
+        Toast.makeText(this, "Sending to Steam Deck in background", Toast.LENGTH_SHORT).show();
+        finishAndRemoveTask();
     }
 
     private List<SharedItem> sharedItems(Intent intent) {

@@ -13,6 +13,10 @@ This companion app registers `DeckyShare` for Android `ACTION_SEND` and
 The phone and Steam Deck must be on the same local network. The authenticated
 endpoint is stored in Android private app preferences.
 
+Shared items are handed to a foreground data-sync service. The temporary share
+screen closes immediately, while an Android notification shows transfer
+progress and the final result.
+
 ## Build
 
 Open this `android/` directory in Android Studio and build the `app` module.

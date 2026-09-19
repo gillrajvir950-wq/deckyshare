@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.15
+
+- Android v0.2 moves Share Sheet uploads into a foreground data-sync service.
+- The temporary Android share screen now closes immediately after enqueueing.
+- Android notifications show live transfer progress, completion, and failures.
+- Added Android 13 notification permission and Android 14 data-sync service declarations.
+
 ## v1.1.0-rc.11.14
 
 - Added authenticated one-time pairing routes for phone Share Sheet clients.

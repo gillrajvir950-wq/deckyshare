@@ -33,11 +33,16 @@ def test_android_app_registers_single_and_multiple_share_targets():
     root = Path(__file__).resolve().parents[1]
     manifest = (root / "android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
     activity = (root / "android/app/src/main/java/com/deckyshare/android/MainActivity.java").read_text(encoding="utf-8")
+    service = (root / "android/app/src/main/java/com/deckyshare/android/ShareUploadService.java").read_text(encoding="utf-8")
     assert "android.intent.action.SEND" in manifest
     assert "android.intent.action.SEND_MULTIPLE" in manifest
-    assert "setFixedLengthStreamingMode(item.size)" in activity
-    assert "byte[] buffer = new byte[1024 * 1024]" in activity
-    assert "readAllBytes" not in activity
+    assert 'android:foregroundServiceType="dataSync"' in manifest
+    assert "ShareUploadService.enqueue(this, intent)" in activity
+    assert "finishAndRemoveTask()" in activity
+    assert "setFixedLengthStreamingMode(item.size)" in service
+    assert "byte[] buffer = new byte[1024 * 1024]" in service
+    assert "startForeground(NOTIFICATION_ID" in service
+    assert "readAllBytes" not in service
 
 
 def test_backend_exposes_pair_and_share_routes_before_session_auth():
