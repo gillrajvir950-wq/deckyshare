@@ -15,11 +15,18 @@ function Bar({value}) {
 function Panel(){
   const [email,setEmail]=useState("");
   const [state,setState]=useState("idle");
-  const [progress,setProgress]=useState(0);\n  const [keyboard,setKeyboard]=useState(false);
+  const [progress,setProgress]=useState(0);
+  const [keyboard,setKeyboard]=useState(false);
   const timer=useRef(null);
   useEffect(()=>()=>{if(timer.current)clearInterval(timer.current)},[]);
   const labels={idle:"Ready",finding:"Finding user…",connecting:"Connecting…",sending:"Sending…",sent:"Sent ✓"};
-  function key(k){\n    if(k==="⌫") setEmail(v=>v.slice(0,-1));\n    else if(k==="Space") setEmail(v=>v+" ");\n    else if(k==="Done") setKeyboard(false);\n    else setEmail(v=>v+k);\n  }\n  function send(){
+  function key(k){
+    if(k==="⌫") setEmail(v=>v.slice(0,-1));
+    else if(k==="Space") setEmail(v=>v+" ");
+    else if(k==="Done") setKeyboard(false);
+    else setEmail(v=>v+k);
+  }
+  function send(){
     if(!email.trim() || state!=="idle") return;
     setProgress(0); setState("finding");
     setTimeout(()=>setState("connecting"),700);
@@ -44,7 +51,16 @@ function Panel(){
     h(Card,null,
       h("div",{style:{fontWeight:800,fontSize:16,marginBottom:3}},"Send to User"),
       h("div",{style:{fontSize:11,opacity:.66,marginBottom:10}},"Try the email-based remote-send flow before we build networking."),
-      h("button",{onClick:()=>state==="idle"&&setKeyboard(v=>!v),disabled:state!=="idle",style:{boxSizing:"border-box",width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid rgba(130,190,255,.28)",background:"rgba(0,0,0,.20)",color:email?"white":"rgba(255,255,255,.55)",fontSize:14,textAlign:"left"}},email||"Recipient email"),\n      keyboard&&state==="idle"&&h("div",{style:{marginTop:8,padding:"8px 5px",borderRadius:10,background:"rgba(0,0,0,.28)"}},\n        ["1234567890","qwertyuiop","asdfghjkl","zxcvbnm"].map((row,ri)=>h("div",{key:ri,style:{display:"flex",justifyContent:"center",gap:3,margin:"3px 0"}},...row.split("").map(ch=>h("button",{key:ch,onClick:()=>key(ch),style:{minWidth:ri===0?24:26,height:30,padding:"0 4px",borderRadius:6,border:"1px solid rgba(255,255,255,.16)",background:"rgba(255,255,255,.09)",color:"white",fontSize:12}},ch)))),\n        h("div",{style:{display:"flex",gap:4,marginTop:5}},\n          h("button",{onClick:()=>key("@"),style:{flex:1,height:32,borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(255,255,255,.09)",color:"white"}},"@"),\n          h("button",{onClick:()=>key("."),style:{flex:1,height:32,borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(255,255,255,.09)",color:"white"}},"."),\n          h("button",{onClick:()=>key("⌫"),style:{flex:1,height:32,borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(255,255,255,.09)",color:"white"}},"⌫"),\n          h("button",{onClick:()=>key("Done"),style:{flex:1.5,height:32,borderRadius:7,border:"1px solid rgba(102,192,244,.4)",background:"rgba(102,192,244,.18)",color:"white",fontWeight:700}},"Done")\n        )\n      ),
+      h("button",{onClick:()=>state==="idle"&&setKeyboard(v=>!v),disabled:state!=="idle",style:{boxSizing:"border-box",width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid rgba(130,190,255,.28)",background:"rgba(0,0,0,.20)",color:email?"white":"rgba(255,255,255,.55)",fontSize:14,textAlign:"left"}},email||"Recipient email"),
+      keyboard&&state==="idle"&&h("div",{style:{marginTop:8,padding:"8px 5px",borderRadius:10,background:"rgba(0,0,0,.28)"}},
+        ["1234567890","qwertyuiop","asdfghjkl","zxcvbnm"].map((row,ri)=>h("div",{key:ri,style:{display:"flex",justifyContent:"center",gap:3,margin:"3px 0"}},...row.split("").map(ch=>h("button",{key:ch,onClick:()=>key(ch),style:{minWidth:ri===0?24:26,height:30,padding:"0 4px",borderRadius:6,border:"1px solid rgba(255,255,255,.16)",background:"rgba(255,255,255,.09)",color:"white",fontSize:12}},ch)))),
+        h("div",{style:{display:"flex",gap:4,marginTop:5}},
+          h("button",{onClick:()=>key("@"),style:{flex:1,height:32,borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(255,255,255,.09)",color:"white"}},"@"),
+          h("button",{onClick:()=>key("."),style:{flex:1,height:32,borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(255,255,255,.09)",color:"white"}},"."),
+          h("button",{onClick:()=>key("⌫"),style:{flex:1,height:32,borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(255,255,255,.09)",color:"white"}},"⌫"),
+          h("button",{onClick:()=>key("Done"),style:{flex:1.5,height:32,borderRadius:7,border:"1px solid rgba(102,192,244,.4)",background:"rgba(102,192,244,.18)",color:"white",fontWeight:700}},"Done")
+        )
+      ),
       h("div",{style:{marginTop:10,padding:"10px",borderRadius:10,background:"rgba(255,255,255,.05)"}},
         h("div",{style:{fontSize:11,opacity:.6}},"Demo file"),
         h("div",{style:{fontWeight:700,marginTop:2}},"Cyberpunk2077-save.zip"),
