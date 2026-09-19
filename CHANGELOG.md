@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.19
+
+- Increased browser upload chunks from 4 MiB to 16 MiB to reduce request overhead on large files.
+- Increased backend streaming blocks and socket buffers for faster 5 GHz LAN transfers.
+- Kept per-chunk CRC verification, resumable uploads, pause/resume and immediate cancellation intact.
+
 ## v1.1.0-rc.11.18
 
 - Cancel now aborts the active browser upload request immediately instead of waiting for the current 4 MiB chunk.

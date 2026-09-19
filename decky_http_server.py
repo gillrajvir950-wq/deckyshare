@@ -8,7 +8,7 @@ import threading
 from http import HTTPStatus
 import http.client
 
-SOCKET_BUFFER_BYTES = 4 * 1024 * 1024
+SOCKET_BUFFER_BYTES = 8 * 1024 * 1024
 
 
 class _SocketWriter(io.BufferedIOBase):
@@ -84,7 +84,7 @@ class BaseHTTPRequestHandler:
         self.request=request; self.connection=request; self.client_address=client_address; self.server=server
         self.close_connection=True; self.requestline=''; self.request_version=self.default_request_version
         self.command=None; self.path=''; self._headers_buffer=[]
-        self.rfile=request.makefile('rb',buffering=256*1024); self.wfile=_SocketWriter(request)
+        self.rfile=request.makefile('rb',buffering=1024*1024); self.wfile=_SocketWriter(request)
         try: self.handle()
         finally:
             try: self.wfile.flush()

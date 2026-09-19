@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.18 immediate cancel
+name: Publish DeckyShare RC11.19 faster LAN uploads
 
 on:
   push:
@@ -53,9 +53,9 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.18'
+          assert package['version'] == '1.1.0-rc.11.19'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.18', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.19', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           assert 'Android Share Sheet' not in ui
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
@@ -74,11 +74,11 @@ jobs:
           assert 'startForeground(NOTIFICATION_ID' in service
           transport = Path('decky_http_server.py').read_text()
           assert 'sendall(view)' in transport
-          assert 'SOCKET_BUFFER_BYTES = 4 * 1024 * 1024' in transport
-          assert "buffering=256*1024" in transport
-          assert 'min(4 * 1024 * 1024, remain)' in backend
+          assert 'SOCKET_BUFFER_BYTES = 8 * 1024 * 1024' in transport
+          assert "buffering=1024*1024" in transport
+          assert 'min(16 * 1024 * 1024, remain)' in backend
           web = Path('web_ui.py').read_text()
-          for marker in ('@media(max-width:700px)', '@media(min-width:701px)', 'safe-area-inset-bottom', 'download-row', 'new AbortController()', 'signal:controller.signal', 'controller.abort()', 'Cancelling now…'):
+          for marker in ('@media(max-width:700px)', '@media(min-width:701px)', 'safe-area-inset-bottom', 'download-row', 'let chunk=16*1024*1024', 'new AbortController()', 'signal:controller.signal', 'controller.abort()', 'Cancelling now…'):
               assert marker in web, marker
           PY
 
@@ -98,22 +98,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.18.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.19.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.18.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.19.zip
 
-      - name: Publish RC11.18 prerelease
+      - name: Publish RC11.19 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.18 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.18 DeckyShare-v1.1.0-rc.11.18.zip --clobber
+          if gh release view v1.1.0-rc.11.19 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.19 DeckyShare-v1.1.0-rc.11.19.zip --clobber
           else
-            gh release create v1.1.0-rc.11.18 DeckyShare-v1.1.0-rc.11.18.zip \
+            gh release create v1.1.0-rc.11.19 DeckyShare-v1.1.0-rc.11.19.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.18' \
-              --notes 'Browser cancellation reliability update. Cancel now aborts the active upload request immediately, asks the server to remove partial data, marks the transfer cancelled and does not retry the cancelled request.'
+              --title 'DeckyShare v1.1.0-rc.11.19' \
+              --notes '5 GHz LAN performance test update. Uses 16 MiB browser upload chunks, larger backend streaming blocks, 8 MiB socket buffers and a 1 MiB buffered request reader while retaining CRC verification, pause/resume, retries and immediate cancellation.'
           fi

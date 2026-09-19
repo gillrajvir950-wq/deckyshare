@@ -40,4 +40,4 @@ def test_socket_writer_uses_full_send_contract():
 
 
 def test_transfer_socket_buffer_is_large_enough_for_bulk_files():
-    assert SOCKET_BUFFER_BYTES >= 4 * 1024 * 1024
+    assert SOCKET_BUFFER_BYTES >= 8 * 1024 * 1024
