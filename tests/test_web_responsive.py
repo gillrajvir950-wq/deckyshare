@@ -25,7 +25,7 @@ def test_web_page_escapes_displayed_address():
 def test_browser_cancel_aborts_active_upload_immediately():
     page = html_page("http://192.168.1.20:8787")
 
-    assert "let chunk=16*1024*1024" in page
+    assert "let chunk=4*1024*1024" in page
     assert "new AbortController()" in page
     assert "signal:controller.signal" in page
     assert "uploadControl.controller.abort()" in page
@@ -37,7 +37,7 @@ def test_immediate_cancel_survives_exactly_once_upload_wrapper():
     page = _wrap_html_page(html_page)("http://192.168.1.20:8787")
 
     assert "new AbortController()" in page
-    assert "let chunk=16*1024*1024" in page
+    assert "let chunk=4*1024*1024" in page
     assert "signal:controller.signal" in page
     assert "uploadControl.controller.abort()" in page
     assert "X-DeckyShare-Upload-ID" in page

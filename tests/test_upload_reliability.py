@@ -21,6 +21,15 @@ def unique_destination_path(path):
 
 
 class UploadReliabilityTests(unittest.TestCase):
+    def test_active_cancel_is_signalled_without_waiting_for_upload_lock(self):
+        source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
+        cancel_handler = source[source.index("def _install_post"):source.index("def _wrap_html_page")]
+
+        self.assertIn('session["cancel_event"].set()', cancel_handler)
+        self.assertIn('status="cancelled"', cancel_handler)
+        self.assertIn('"cleanup_pending": True', cancel_handler)
+        self.assertNotIn("with _upload_lock(upload_id):", cancel_handler)
+
     def test_interrupted_upload_resumes_without_rewriting_good_data(self):
         with tempfile.TemporaryDirectory() as tmp:
             part = Path(tmp) / "large.iso.deckshare-part"

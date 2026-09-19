@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.20
+
+- Cancel now marks an active transfer cancelled without waiting for its upload lock.
+- Added a server-side cancellation signal so blocked iPhone/Safari requests clean up safely when they release.
+- Restored 4 MiB browser chunks after 16 MiB chunks proved inconsistent across Android and iPhone.
+
 ## v1.1.0-rc.11.19
 
 - Increased browser upload chunks from 4 MiB to 16 MiB to reduce request overhead on large files.

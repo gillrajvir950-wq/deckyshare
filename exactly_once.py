@@ -14,6 +14,10 @@ _upload_locks = {}
 _upload_locks_guard = threading.Lock()
 
 
+class _UploadCancelled(Exception):
+    pass
+
+
 def _upload_lock(upload_id):
     with _upload_locks_guard:
         lock = _upload_locks.get(upload_id)
@@ -138,6 +142,7 @@ def _install_put(core):
                         "part": str(part),
                         "tid": core.STATE.new_transfer("upload", name, total),
                         "updated": time.time(),
+                        "cancel_event": threading.Event(),
                     }
                     core.STATE.upload_sessions[upload_id] = session
 
@@ -152,6 +157,7 @@ def _install_put(core):
                 return self.send_json({"error": str(e), "received": current}, 400)
 
             tid = session["tid"]
+            cancel_event = session["cancel_event"]
             expected_crc = self.headers.get("X-DeckyShare-CRC32", "").strip().lower()
             if expected_crc and (len(expected_crc) != 8 or any(c not in "0123456789abcdef" for c in expected_crc)):
                 _drain(self, length)
@@ -164,7 +170,11 @@ def _install_put(core):
                 part.parent.mkdir(parents=True, exist_ok=True)
                 with open(part, "ab", buffering=0) as f:
                     while remain:
+                        if cancel_event.is_set():
+                            raise _UploadCancelled()
                         chunk = self.rfile.read(min(4 * 1024 * 1024, remain))
+                        if cancel_event.is_set():
+                            raise _UploadCancelled()
                         if not chunk:
                             break
                         try:
@@ -183,6 +193,8 @@ def _install_put(core):
                         remain -= len(chunk)
                         current += len(chunk)
                         core.STATE.update_transfer(tid, current)
+                    if cancel_event.is_set():
+                        raise _UploadCancelled()
                     if remain:
                         f.truncate(chunk_start)
                         current = chunk_start
@@ -237,6 +249,20 @@ def _install_put(core):
                     "verified": bool(expected_crc),
                     "upload_id": upload_id,
                 })
+            except _UploadCancelled:
+                _rollback_part(part, chunk_start)
+                try:
+                    part.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                with core.STATE.lock:
+                    if core.STATE.upload_sessions.get(upload_id) is session:
+                        core.STATE.upload_sessions.pop(upload_id, None)
+                core.STATE.update_transfer(tid, chunk_start, "cancelled")
+                try:
+                    return self.send_json({"cancelled": True, "received": chunk_start, "upload_id": upload_id})
+                except OSError:
+                    return None
             except OSError as e:
                 _rollback_part(part, chunk_start)
                 core.STATE.update_transfer(tid, chunk_start)
@@ -274,28 +300,27 @@ def _install_post(core):
             return self.send_json({"error": "Missing filename"}, 400)
 
         _clean_state(core)
-        with _upload_lock(upload_id):
-            with core.STATE.lock:
-                completed = core.STATE.completed_uploads.get(upload_id)
-                session = core.STATE.upload_sessions.get(upload_id)
-            if completed:
-                return self.send_json({"ok": True, "already_complete": True, "name": completed["name"]})
-            if session and (session["name"] != name):
-                return self.send_json({"error": "Upload ID does not match filename"}, 409)
+        with core.STATE.lock:
+            completed = core.STATE.completed_uploads.get(upload_id)
+            session = core.STATE.upload_sessions.get(upload_id)
+        if completed:
+            return self.send_json({"ok": True, "already_complete": True, "name": completed["name"]})
+        if session and (session["name"] != name):
+            return self.send_json({"error": "Upload ID does not match filename"}, 409)
 
-            part = upload_part_path(core.STATE.receive_dir, upload_id)
-            try:
-                part.unlink(missing_ok=True)
-            except OSError as e:
-                status, code, message = _storage_error(e)
-                return self.send_json({"error": message, "code": code}, status)
+        part = upload_part_path(core.STATE.receive_dir, upload_id)
+        if session:
+            session["cancel_event"].set()
+            core.STATE.update_transfer(session["tid"], status="cancelled")
+            return self.send_json({"ok": True, "cancelled": name, "upload_id": upload_id, "cleanup_pending": True})
 
-            tid = session.get("tid") if session else None
-            with core.STATE.lock:
-                core.STATE.upload_sessions.pop(upload_id, None)
-            if tid:
-                core.STATE.update_transfer(tid, status="cancelled")
-            return self.send_json({"ok": True, "cancelled": name, "upload_id": upload_id})
+        try:
+            part.unlink(missing_ok=True)
+        except OSError as e:
+            status, code, message = _storage_error(e)
+            return self.send_json({"error": message, "code": code}, status)
+
+        return self.send_json({"ok": True, "cancelled": name, "upload_id": upload_id})
 
     core.Handler.do_POST = do_POST
 
@@ -306,8 +331,8 @@ def _wrap_html_page(original):
         old_cancel = "async function cancelPartial(name){try{await api('/api/cancel-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});}catch(e){}}"
         new_cancel = "async function cancelPartial(name,uploadId){try{await api('/api/cancel-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,upload_id:uploadId})});}catch(e){}}"
         page = page.replace(old_cancel, new_cancel)
-        old_start = "async function uploadOne(f,onProgress,onRetry){let chunk=16*1024*1024,off=0,lastName=f.name,retries=0,first=true;"
-        new_start = "async function uploadOne(f,onProgress,onRetry){const uploadId=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():('ds_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12));let chunk=16*1024*1024,off=0,lastName=f.name,retries=0,first=true;"
+        old_start = "async function uploadOne(f,onProgress,onRetry){let chunk=4*1024*1024,off=0,lastName=f.name,retries=0,first=true;"
+        new_start = "async function uploadOne(f,onProgress,onRetry){const uploadId=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():('ds_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12));let chunk=4*1024*1024,off=0,lastName=f.name,retries=0,first=true;"
         page = page.replace(old_start, new_start)
         page = page.replace("'X-DeckyShare-CRC32':sum", "'X-DeckyShare-CRC32':sum,'X-DeckyShare-Upload-ID':uploadId")
         page = page.replace("cancelPartial(f.name)", "cancelPartial(f.name,uploadId)")
