@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.1.0-rc.11.6
+
+### Added
+- Native Steam Deck controller navigation using Decky UI controls
+- D-pad/left-stick focus movement and A-button activation
+- B-button cancellation and one-level folder navigation
+- One-press visible Back button in Browse Files
+- Automatic focus on the first visible file or folder
+
+### Changed
+- B returns to Locations when already at a quick-location root
+- Browse Files keeps RC11.4 compact rows and RC11.2 paging/sort protections
+- Repository now contains reproducible frontend source and Rollup configuration for Store builds
+
+### Security
+- Require a cryptographically random session token for every LAN browser request
+- Exchange the QR/address token for an HttpOnly, SameSite=Strict session cookie
+- Restrict legacy plugin bootstrap/status HTTP endpoints to the Steam Deck loopback interface
+
 ## v1.1.0-rc.1
 
 Release candidate focused on transfer reliability and a cleaner Deck/browser experience.

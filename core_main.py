@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import urllib.parse
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -137,7 +138,8 @@ def connection_options():
     out = []
     for item in network_addresses():
         ip = item["ip"]
-        url = f"http://{ip}:{STATE.port}/"
+        token = urllib.parse.quote(STATE.token, safe="")
+        url = f"http://{ip}:{STATE.port}/?token={token}"
         out.append({
             "ip": ip,
             "interface": item["interface"],
@@ -323,6 +325,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
         super().end_headers()
 
     server_version = "DeckyShare/1.1-dev"
@@ -331,7 +335,32 @@ class Handler(BaseHTTPRequestHandler):
         decky.logger.info("DeckyShare HTTP: " + (fmt % args))
 
     def token_ok(self):
-        return True
+        provided = ""
+        try:
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            provided = str(query.get("token", [""])[0] or "")
+        except Exception:
+            provided = ""
+        if not provided:
+            provided = str(self.headers.get("X-DeckyShare-Token", "") or "")
+        if not provided:
+            try:
+                cookies = SimpleCookie()
+                cookies.load(self.headers.get("Cookie", ""))
+                morsel = cookies.get("deckyshare_token")
+                provided = morsel.value if morsel else ""
+            except Exception:
+                provided = ""
+        try:
+            return bool(provided) and secrets.compare_digest(provided, STATE.token)
+        except Exception:
+            return False
+
+    def loopback_client(self):
+        try:
+            return ipaddress.ip_address(self.client_address[0]).is_loopback
+        except Exception:
+            return False
 
     def send_json(self, obj, status=200):
         data = json.dumps(obj).encode()
@@ -347,6 +376,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/health":
             return self.send_json({"ok": True})
         if u.path == "/plugin-bootstrap":
+            if not self.loopback_client():
+                self.send_error(403, "Local Decky access only")
+                return
             addr = f"http://{local_ip()}:{STATE.port}/"
             sel = None
             if STATE.selected and STATE.selected.exists():
@@ -355,6 +387,9 @@ class Handler(BaseHTTPRequestHandler):
             status = {"token": STATE.token, "address": addr, "qr": f"http://127.0.0.1:{STATE.port}/qr.svg", "selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir)}
             return self.send_json({"token": STATE.token, "roots": [{"name": n, "path": str(p)} for n, p in allowed_roots()], "status": status})
         if u.path == "/plugin-status":
+            if not self.loopback_client():
+                self.send_error(403, "Local Decky access only")
+                return
             addr = f"http://{local_ip()}:{STATE.port}/"
             sel = None
             if STATE.selected and STATE.selected.exists():
@@ -370,6 +405,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header(
+                "Set-Cookie",
+                f"deckyshare_token={STATE.token}; Path=/; HttpOnly; SameSite=Strict",
+            )
             self.end_headers()
             self.wfile.write(data)
             return

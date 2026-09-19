@@ -1,8 +1,17 @@
 {
   "name": "deckyshare",
-  "version": "1.1.0-rc.1",
+  "version": "1.1.0-rc.11.6",
   "description": "DeckyShare wireless LAN file transfer plugin for Steam Deck",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gillrajvir950-wq/deckyshare.git"
+  },
+  "homepage": "https://github.com/gillrajvir950-wq/deckyshare",
+  "bugs": {
+    "url": "https://github.com/gillrajvir950-wq/deckyshare/issues"
+  },
   "scripts": {
     "build": "rollup -c"
   },

@@ -12,12 +12,13 @@ DeckyShare is a Decky Loader plugin for wireless two-way file transfers between 
 - Large-file transfer support with progress, speed and ETA
 - HTTP Range/resume support for downloads
 - Received-files list and delete action in Gaming Mode
-- Gaming Mode friendly file browser
+- Controller-first Gaming Mode file manager with D-pad/A/B navigation
+- Copy, move, rename, details, new-folder and move-to-trash actions
 - Matching dark UI on Steam Deck and the phone/PC web page
 
 ## Download
 
-The current public release is **DeckyShare v1.0.0**.
+The current stable release is **DeckyShare v1.0.0**. Version 1.1.0 is being validated for the Decky Plugin Store.
 
 Download `DeckyShare-v1.0.0.zip` from the repository's **Releases** page and install it using Decky Loader's manual/developer plugin installation flow.
 
@@ -26,13 +27,11 @@ Download `DeckyShare-v1.0.0.zip` from the repository's **Releases** page and ins
 1. Open DeckyShare from Decky Loader in Gaming Mode.
 2. Scan the QR code or open the displayed local-network address on your phone/PC.
 3. Select a file on the Steam Deck to download it from the browser, or upload a file from the browser to the Deck.
-4. Received files are saved under `~/Downloads/DeckShare/` in the current v1.0.0 build.
+4. Received files are saved under `~/Downloads/DeckShare/`.
 
 ## Screenshots
 
-DeckyShare includes a Gaming Mode file browser, QR-code connection screen, transfer progress information, and a matching phone/PC web interface.
-
-> Screenshots and demo media will be added here as the public project documentation is expanded.
+DeckyShare includes a Gaming Mode file manager, QR-code connection screen, transfer progress information, and a matching phone/PC web interface. See [`ScreenShots/`](ScreenShots/).
 
 ## Support
 
