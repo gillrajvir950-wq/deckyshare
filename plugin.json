@@ -1,7 +1,9 @@
 {
   "name": "DeckyShareRemoteDemo",
   "author": "Gillrv",
-  "flags": [],
+  "flags": [
+    "_root"
+  ],
   "api_version": 1,
   "publish": {
     "tags": [
