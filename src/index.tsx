@@ -19,17 +19,12 @@ const CONTROLLER_FOCUS_STYLE = {
 
 const DialogButton = forwardRef(function DeckyShareDialogButton(props,ref){
   const [focused,setFocused]=useState(false);
-  const {style,onFocus,onBlur,onGamepadFocus,onGamepadBlur,className,...rest}=props||{};
+  const {style,onFocus,onBlur,className,...rest}=props||{};
   const focus=e=>{setFocused(true);if(typeof onFocus==="function")onFocus(e);};
   const blur=e=>{setFocused(false);if(typeof onBlur==="function")onBlur(e);};
-  const gamepadFocus=e=>{setFocused(true);if(typeof onGamepadFocus==="function")onGamepadFocus(e);};
-  const gamepadBlur=e=>{setFocused(false);if(typeof onGamepadBlur==="function")onGamepadBlur(e);};
   const shared={...rest,ref,className:`deckyshare-action${className?` ${className}`:""}`,style:{...style,...(focused?CONTROLLER_FOCUS_STYLE:{})},onFocus:focus,onBlur:blur};
   if(BaseDialogButton!=="button"){
-    shared.noFocusRing=false;
-    shared.focusClassName="deckyshare-controller-focus";
-    shared.onGamepadFocus=gamepadFocus;
-    shared.onGamepadBlur=gamepadBlur;
+    shared.noFocusRing=true;
   }
   return h(BaseDialogButton,shared);
 });
@@ -148,9 +143,21 @@ function Bar({value}){return h("div",{style:{height:8,borderRadius:6,background:
 function Btn({children,onClick,disabled=false}){return h(DialogButton,{disabled,onClick,style:{width:"100%",padding:"11px 12px",margin:"5px 0",borderRadius:11,border:"1px solid rgba(130,190,255,.20)",background:disabled?"rgba(255,255,255,.05)":"rgba(34,67,106,.72)",color:"white",fontSize:13,textAlign:"left"}},children);}
 function Card({children,style={}}){return h("div",{style:{background:"linear-gradient(180deg,rgba(22,42,68,.92),rgba(15,29,49,.92))",border:"1px solid rgba(120,180,255,.16)",borderRadius:15,padding:13,margin:"10px 0",boxShadow:"0 5px 18px rgba(0,0,0,.12)",...style}},children);}
 function SectionTitle({icon,title,sub}){return h("div",{style:{display:"flex",gap:9,alignItems:"center",marginBottom:9}},h("div",{style:{fontSize:21}},icon),h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:760,fontSize:15}},title),sub&&h("div",{style:{fontSize:11,opacity:.62,marginTop:1,lineHeight:1.3}},sub)));}
-function MiniButton({children,onClick,tone="normal"}){
+function AccordionCard({icon,title,sub,open,onToggle,children,style={}}){
+  return h(Card,{style},
+    h(DialogButton,{onClick:onToggle,"aria-expanded":!!open,style:{width:"100%",minHeight:0,padding:"2px 1px 7px",margin:0,border:0,background:"transparent",color:"white",textAlign:"left"}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"28px minmax(0,1fr) 22px",gap:7,alignItems:"center"}},
+        h("div",{style:{fontSize:20,textAlign:"center"}},icon),
+        h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:760,fontSize:14}},title),sub&&h("div",{style:{fontSize:10,opacity:.58,marginTop:1,lineHeight:1.25,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},sub)),
+        h("div",{style:{fontSize:16,fontWeight:800,textAlign:"center",color:"#9fdcff"}},open?"▼":"▶")
+      )
+    ),
+    open&&h("div",{style:{paddingTop:5}},children)
+  );
+}
+function MiniButton({children,onClick,tone="normal",compact=false}){
   const danger=tone==="danger";
-  return h(DialogButton,{onClick,style:{padding:"7px 9px",borderRadius:9,border:danger?"1px solid rgba(255,110,110,.34)":"1px solid rgba(120,180,255,.24)",background:danger?"rgba(255,70,70,.10)":"rgba(68,122,184,.13)",color:danger?"#ffd0d0":"#d9edff",fontSize:11,fontWeight:700}},children);
+  return h(DialogButton,{onClick,style:{minHeight:compact?28:undefined,height:compact?28:undefined,padding:compact?"3px 6px":"7px 9px",borderRadius:compact?7:9,border:danger?"1px solid rgba(255,110,110,.34)":"1px solid rgba(120,180,255,.24)",background:danger?"rgba(255,70,70,.10)":"rgba(68,122,184,.13)",color:danger?"#ffd0d0":"#d9edff",fontSize:compact?9:11,lineHeight:1.05,fontWeight:700}},children);
 }
 
 function DeckyShareBrandIcon({size=24}){
@@ -183,9 +190,11 @@ function makePanel(){
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
     const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false),[shortcutPair,setShortcutPair]=useState(null),[shortcutPairBusy,setShortcutPairBusy]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name"),[fmStorage,setFmStorage]=useState(null),[fmSelect,setFmSelect]=useState(false),[fmPicked,setFmPicked]=useState([]),[fmClip,setFmClip]=useState(null),[fmBusy,setFmBusy]=useState(false),[fmNew,setFmNew]=useState(""),[fmRename,setFmRename]=useState(null),[fmRenameValue,setFmRenameValue]=useState(""),[fmInfo,setFmInfo]=useState(null),[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50),[fmMenu,setFmMenu]=useState(false);
+    const [openSections,setOpenSections]=useState({browse:true,received:false,transfers:false,notifications:false,updates:false,support:false});
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
     const firstBrowseItemRef=useRef(null);
+    const toggleSection=id=>setOpenSections(previous=>({...previous,[id]:!previous[id]}));
 
     async function call(method,args={}){
       if(!backendAPI)backendAPI=connectDeckyBackend();
@@ -370,6 +379,7 @@ function makePanel(){
     useEffect(()=>{bootstrap();},[]);
     useEffect(()=>{if(!status)return;const t=setInterval(refreshStatus,path?4000:1500);return()=>clearInterval(t);},[!!status,!!path]);
     useEffect(()=>{if(!path||status&&status.selected)return;const t=setTimeout(()=>{try{if(firstBrowseItemRef.current&&typeof firstBrowseItemRef.current.focus==="function")firstBrowseItemRef.current.focus();}catch(e){}},80);return()=>clearTimeout(t);},[path,items,status&&status.selected]);
+    useEffect(()=>{if(status&&status.transfers&&status.transfers.length)setOpenSections(previous=>previous.transfers?previous:{...previous,transfers:true});},[status&&status.transfers&&status.transfers.length]);
 
     const conns=status&&status.addresses||[];
     const activeConn=conns[Math.min(connIndex,Math.max(0,conns.length-1))]||null;
@@ -384,7 +394,7 @@ function makePanel(){
     if(!status)return h("div",{style:{padding:12}},"Starting DeckyShare backend…");
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.9")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.10")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
 
       h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
         h(SectionTitle,{icon:"📡",title:"Connect phone / PC",sub:"Scan the QR code or open the local address"}),
@@ -399,8 +409,7 @@ function makePanel(){
         conns.length>1&&h("div",{style:{marginTop:9}},h("div",{style:{fontSize:10,opacity:.52,marginBottom:4}},"Network"),conns.map((c,i)=>h(DialogButton,{key:c.ip,onClick:()=>{setConnIndex(i);setCopied(false);},style:{padding:"5px 7px",margin:"2px 3px 2px 0",borderRadius:7,border:i===connIndex?"1px solid #66c0f4":"1px solid rgba(255,255,255,.10)",background:i===connIndex?"rgba(102,192,244,.16)":"transparent",color:"white",fontSize:10}},c.interface)))
       ),
 
-      h(Card,{style:{border:"1px solid rgba(120,180,255,.19)"}},
-        h(SectionTitle,{icon:"📁",title:"Browse Files"}),
+      h(AccordionCard,{icon:"📁",title:"Browse Files",sub:path?(browseCrumbs.map(c=>c.label).join(" › ")||"Current folder"):"Choose a location",open:openSections.browse,onToggle:()=>toggleSection("browse"),style:{border:"1px solid rgba(120,180,255,.19)"}},
         !status.selected&&!path&&h("div",null,
           roots.map(r=>h(DialogButton,{key:r.path,onClick:()=>browse(r.path),style:{width:"100%",padding:"9px 10px",margin:"4px 0",borderRadius:11,border:"1px solid rgba(120,180,255,.12)",background:"rgba(20,39,63,.50)",color:"white",textAlign:"left"}},
             h("div",{style:{display:"flex",alignItems:"center",gap:9}},
@@ -424,19 +433,21 @@ function makePanel(){
           fmInfo&&h("div",{style:{padding:8,borderRadius:9,marginBottom:7,background:"rgba(255,255,255,.025)",border:"1px solid rgba(120,180,255,.12)",fontSize:9}},h("div",{style:{fontWeight:760,fontSize:11}},`${browseFileIcon(fmInfo)} ${fmInfo.name}`),h("div",{style:{opacity:.55,wordBreak:"break-all",marginTop:3}},fmInfo.path),h("div",{style:{opacity:.55,marginTop:2}},fmInfo.type==="dir"?`Folder${fmInfo.item_count!=null?` • ${fmInfo.item_count} item(s)`:""}`:`${fmInfo.size_human}${fmInfo.mime?` • ${fmInfo.mime}`:""}`)),
           h("div",{style:{display:"grid",gridTemplateColumns:"auto minmax(0,1fr) auto",gap:6,alignItems:"center",marginBottom:7}},
             h(DialogButton,{onClick:navigateBack,style:{width:38,height:34,minWidth:38,padding:0,margin:0,borderRadius:9,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#d9edff",fontSize:18,fontWeight:800}},"←"),
-            h("div",{style:{display:"flex",gap:3,alignItems:"center",minWidth:0,overflow:"hidden",padding:"6px 7px",borderRadius:9,background:"rgba(7,17,29,.34)",border:"1px solid rgba(120,180,255,.10)"}},
+            h("div",{style:{display:"flex",gap:3,alignItems:"center",minWidth:0,overflow:"hidden",padding:"6px 8px",borderRadius:9,background:"rgba(38,68,101,.48)",border:"1px solid rgba(120,180,255,.18)",minHeight:22}},
               browseCrumbs.map((c,i)=>h(React.Fragment,{key:c.path},
                 i>0&&h("span",{style:{fontSize:9,opacity:.30}},"›"),
-                h(DialogButton,{onClick:()=>c.path===path?null:browse(c.path),disabled:c.path===path,style:{padding:"2px 3px",border:0,background:"transparent",color:c.path===path?"#fff":"#8fd3ff",fontSize:9,fontWeight:c.path===path?760:620,maxWidth:96,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:i===browseCrumbs.length-1?1:0}},c.label)
+                c.path===path
+                  ?h("span",{style:{padding:"2px 3px",color:"#fff",fontSize:10,fontWeight:780,maxWidth:130,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:1}},c.label)
+                  :h(DialogButton,{onClick:()=>browse(c.path),style:{minHeight:0,padding:"2px 3px",border:0,background:"transparent",color:"#8fd3ff",fontSize:9,fontWeight:620,maxWidth:96,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}},c.label)
               ))
             ),
             h(DialogButton,{onClick:()=>setFmMenu(v=>!v),style:{width:38,height:34,borderRadius:9,border:fmMenu?"1px solid #66c0f4":"1px solid rgba(120,180,255,.16)",background:fmMenu?"rgba(102,192,244,.14)":"rgba(255,255,255,.025)",color:"#d9edff",fontSize:18,fontWeight:800}},"⋯")
           ),
           fmMenu&&h("div",{style:{padding:8,marginBottom:7,borderRadius:10,background:"rgba(9,22,38,.92)",border:"1px solid rgba(120,180,255,.16)"}},
             h("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginBottom:fmStorage||roots.length?7:0}},
-              h(MiniButton,{onClick:()=>{setPath(null);setParent(null);setItems([]);setBrowseQuery("");setFmMenu(false);}},"Locations"),
-              h(MiniButton,{onClick:()=>{setFmSelect(v=>!v);setFmPicked([]);setFmInfo(null);setFmMenu(false);}},fmSelect?"Done":"Select"),
-              h(MiniButton,{onClick:()=>{setFmNew(fmNew?"":"New folder");setFmMenu(false);}},fmNew?"Cancel":"New folder")
+              h(MiniButton,{compact:true,onClick:()=>{setPath(null);setParent(null);setItems([]);setBrowseQuery("");setFmMenu(false);}},"Locations"),
+              h(MiniButton,{compact:true,onClick:()=>{setFmSelect(v=>!v);setFmPicked([]);setFmInfo(null);setFmMenu(false);}},fmSelect?"Done":"Select"),
+              h(MiniButton,{compact:true,onClick:()=>{setFmNew(fmNew?"":"New folder");setFmMenu(false);}},fmNew?"Cancel":"New folder")
             ),
             fmStorage&&h("div",{style:{fontSize:9,opacity:.55,marginBottom:7}},`${fmStorage.used_human} used • ${fmStorage.free_human} free`,h(Bar,{value:fmUsed})),
             roots.length>0&&h("div",{style:{display:"flex",gap:4,overflowX:"auto",paddingBottom:2}},roots.map(r=>h(DialogButton,{key:r.path,onClick:()=>{setFmMenu(false);browse(r.path);},style:{flex:"0 0 auto",padding:"5px 7px",borderRadius:999,border:path===r.path?"1px solid #66c0f4":"1px solid rgba(120,180,255,.14)",background:path===r.path?"rgba(102,192,244,.13)":"rgba(255,255,255,.025)",color:path===r.path?"#a9ddff":"#d9edff",fontSize:9,fontWeight:700}},r.name.startsWith("Drive:")?`💾 ${r.name.replace("Drive: ","")}`:r.name)))
@@ -461,8 +472,7 @@ function makePanel(){
         )
       ),
 
-      h(Card,null,
-        h(SectionTitle,{icon:"📥",title:"Received Files",sub:"Recent files sent from phone / PC"}),
+      h(AccordionCard,{icon:"📥",title:"Received Files",sub:"Recent files sent from phone / PC",open:openSections.received,onToggle:()=>toggleSection("received")},
         (!status.received||!status.received.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(28,54,87,.62)",border:"1px solid rgba(120,180,255,.12)",borderRadius:12,padding:10,margin:"7px 0"}},
           h("div",{style:{display:"flex",gap:9,alignItems:"center"}},h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(120,77,255,.16)",fontSize:19}},"📦"),h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:740,wordBreak:"break-word"}},f.name),h("div",{style:{fontSize:10,opacity:.54,marginTop:2}},f.size_human))),
           h("div",{style:{fontSize:9,opacity:.42,marginTop:6,wordBreak:"break-all"}},f.path),
@@ -470,14 +480,12 @@ function makePanel(){
         ))
       ),
 
-      h(Card,null,
-        h(SectionTitle,{icon:"↔️",title:"Live Transfers",sub:"Progress, speed and ETA"}),
+      h(AccordionCard,{icon:"↔️",title:"Live Transfers",sub:"Progress, speed and ETA",open:openSections.transfers,onToggle:()=>toggleSection("transfers")},
         (!status.transfers||!status.transfers.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No active transfers"):status.transfers.map(t=>h("div",{key:t.id,style:{padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.05)"}},h("div",{style:{fontWeight:680,wordBreak:"break-word"}},`${t.direction==="upload"?"Phone/PC → Deck":"Deck → Phone/PC"}  •  ${t.name}`),h("div",{style:{fontSize:11,opacity:.62,marginTop:2}},`${Number(t.percent||0).toFixed(1)}% • ${fmt(t.speed)}/s${t.eta?` • ETA ${Math.ceil(t.eta)}s`:""}`),h(Bar,{value:t.percent})))
       ),
 
-      h(Card,{style:{border:"1px solid rgba(120,180,255,.18)"}},h(SectionTitle,{icon:"🔔",title:"Notifications",sub:"Received files, failed transfers and completed sends"}),h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
-      h(Card,{style:{border:"1px solid rgba(96,211,152,.22)"}},
-        h(SectionTitle,{icon:"⬆️",title:"Updates",sub:"Verified GitHub releases • manual install only"}),
+      h(AccordionCard,{icon:"🔔",title:"Notifications",sub:"Received files and transfer results",open:openSections.notifications,onToggle:()=>toggleSection("notifications"),style:{border:"1px solid rgba(120,180,255,.18)"}},h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
+      h(AccordionCard,{icon:"⬆️",title:"Updates",sub:"Verified GitHub releases",open:openSections.updates,onToggle:()=>toggleSection("updates"),style:{border:"1px solid rgba(96,211,152,.22)"}},
         h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:"Installed: v1.1.0-rc.1"),
         updateInfo&&updateInfo.installed_now&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(70,210,125,.10)",border:"1px solid rgba(80,220,140,.18)",fontSize:11,lineHeight:1.45,marginBottom:8}},`✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{fontSize:10,opacity:.68,whiteSpace:"pre-wrap",maxHeight:72,overflow:"hidden",marginTop:6}},updateInfo.notes)),
@@ -491,7 +499,7 @@ function makePanel(){
         ),
         h("div",{style:{fontSize:9,opacity:.42,lineHeight:1.35,marginTop:8}},"Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.")
       ),
-      h(Card,{style:{border:"1px solid rgba(255,190,75,.18)"}},h(SectionTitle,{icon:"☕",title:"Support DeckyShare",sub:"Free & open-source community project"}),h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"☕ Buy me a coffee")),
+      h(AccordionCard,{icon:"☕",title:"Support DeckyShare",sub:"Free & open-source community project",open:openSections.support,onToggle:()=>toggleSection("support"),style:{border:"1px solid rgba(255,190,75,.18)"}},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"☕ Buy me a coffee")),
       err&&h("div",{style:{color:"#ffb3b3",marginTop:8,fontSize:11,wordBreak:"break-word"}},err)
     );
   };

@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.0-rc.11.10
+
+- Added controller-friendly open/close accordions to every section except Connect phone / PC.
+- Kept Browse Files open by default and auto-opens Live Transfers when a transfer begins.
+- Made the Locations, Select, and New folder controls compact.
+- Replaced the empty breadcrumb control with a readable current-folder path.
+- Removed overlapping native/custom focus rings so only one item is highlighted.
+
 ## v1.1.0-rc.11.9
 
 - Replaced direct plugin-folder updates with Decky Loader's native installer handoff.
