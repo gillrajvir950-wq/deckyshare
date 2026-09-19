@@ -46,14 +46,19 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        buildUi();
-        if (Build.VERSION.SDK_INT >= 33
+        Intent initialIntent = getIntent();
+        if (isShareIntent(initialIntent) && isPaired() && Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            pendingShare = getIntent();
+            pendingShare = initialIntent;
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 7);
-        } else {
-            acceptIntent(getIntent());
+            return;
         }
+        if (isShareIntent(initialIntent) && isPaired()) {
+            sendIntent(initialIntent);
+            return;
+        }
+        buildUi();
+        acceptIntent(initialIntent);
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -101,14 +106,19 @@ public final class MainActivity extends Activity {
 
     private void acceptIntent(Intent intent) {
         if (intent == null) return;
-        String action = intent.getAction();
-        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action)) return;
+        if (!isShareIntent(intent)) return;
         pendingShare = intent;
         if (!isPaired()) {
             showStatus("Pair this phone before sending the shared item.", true);
             return;
         }
         sendIntent(intent);
+    }
+
+    private boolean isShareIntent(Intent intent) {
+        if (intent == null) return false;
+        String action = intent.getAction();
+        return Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action);
     }
 
     private void pair() {
