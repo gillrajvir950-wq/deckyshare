@@ -13,7 +13,7 @@ import threading
 import time
 import urllib.parse
 from http.cookies import SimpleCookie
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from decky_http_server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from transfer_integrity import (
@@ -99,12 +99,6 @@ def network_addresses():
                         add(ai["local"], iface)
     except Exception as e:
         decky.logger.warning(f"DeckyShare address discovery via ip failed: {e}")
-
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_STREAM):
-            add(info[4][0], "hostname")
-    except Exception:
-        pass
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -247,6 +241,7 @@ class State:
 
 
 STATE = State()
+_START_SERVER_LOCK = threading.Lock()
 
 
 def notify_file_received(item):
@@ -632,19 +627,24 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def start_server():
-    for port in range(PORT_START, PORT_END + 1):
-        try:
-            server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-            STATE.port = port
-            STATE.server = server
-            th = threading.Thread(target=server.serve_forever, name="DeckyShareHTTP", daemon=True)
-            th.start()
-            STATE.thread = th
-            decky.logger.info(f"DeckyShare listening on {port}")
+    with _START_SERVER_LOCK:
+        if STATE.server is not None:
             return
-        except OSError:
-            continue
-    raise RuntimeError("DeckyShare could not bind a port")
+        last_error = None
+        for port in range(PORT_START, PORT_END + 1):
+            try:
+                server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+                STATE.port = port
+                STATE.server = server
+                th = threading.Thread(target=server.serve_forever, name="DeckyShareHTTP", daemon=True)
+                th.start()
+                STATE.thread = th
+                decky.logger.info(f"DeckyShare listening on {port}")
+                return
+            except OSError as exc:
+                last_error = exc
+                continue
+        raise RuntimeError(f"DeckyShare could not bind a port: {last_error}")
 
 
 def selected_info():
@@ -704,7 +704,7 @@ def extract_path(value=None, args=(), kwargs=None):
 class Plugin:
     async def bootstrap(self, *args, **kwargs):
         if STATE.server is None:
-            start_server()
+            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)
         options = connection_options()
         preferred = options[0] if options else {"url": f"http://127.0.0.1:{STATE.port}/", "qr_data": None}
         return {
@@ -725,7 +725,7 @@ class Plugin:
 
     async def status(self, *args, **kwargs):
         if STATE.server is None:
-            start_server()
+            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)
         options = connection_options()
         preferred = options[0] if options else {"url": f"http://127.0.0.1:{STATE.port}/"}
         return {
@@ -779,13 +779,13 @@ class Plugin:
 
     async def ping(self, *args, **kwargs):
         if STATE.server is None:
-            start_server()
+            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)
         return {"ok": True, "port": STATE.port}
 
     async def _main(self):
+        STATE.loop = asyncio.get_running_loop()
         try:
-            STATE.loop = asyncio.get_running_loop()
-            start_server()
+            await asyncio.wait_for(asyncio.to_thread(start_server), timeout=4.0)
         except Exception:
             decky.logger.exception("DeckyShare failed to start in _main; frontend bootstrap will retry")
 

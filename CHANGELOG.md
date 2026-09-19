@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.7
+
+- Restored the bundled HTTP compatibility layer required by Decky Loader's frozen Python runtime.
+- Removed a blocking hostname lookup from backend startup.
+- Made LAN server startup idempotent, thread-safe, and time-bounded.
+- Preserved RC11.6 authenticated LAN sessions and controller navigation.
+
 ## v1.1.0-rc.11.6
 
 ### Added
