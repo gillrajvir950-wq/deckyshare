@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.16
+
+- Added a dedicated responsive phone layout for the DeckyShare browser page.
+- Mobile controls now use full-width touch targets, safe-area spacing and a single-column flow.
+- Desktop browsers retain a wider two-column dashboard instead of receiving the phone layout.
+- Improved long filename wrapping and upload-control alignment on narrow screens.
+
 ## v1.1.0-rc.11.15
 
 - Android v0.2 moves Share Sheet uploads into a foreground data-sync service.

@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.15 Android background transfers
+name: Publish DeckyShare RC11.16 responsive web layout
 
 on:
   push:
@@ -28,15 +28,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-
       - name: Install and build frontend
         run: |
           set -euo pipefail
@@ -51,13 +42,6 @@ jobs:
           python -m pytest -q
           python -m py_compile *.py
 
-      - name: Build Android Share Sheet APK
-        run: |
-          set -euo pipefail
-          gradle -p android :app:assembleDebug --no-daemon
-          test -s android/app/build/outputs/apk/debug/app-debug.apk
-          cp android/app/build/outputs/apk/debug/app-debug.apk DeckyShare-Android-v0.2.0.apk
-
       - name: Validate metadata and package
         run: |
           set -euo pipefail
@@ -69,9 +53,9 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.15'
+          assert package['version'] == '1.1.0-rc.11.16'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.15', 'Android Share Sheet', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.16', 'Android Share Sheet', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
               assert marker in backend, marker
@@ -87,6 +71,9 @@ jobs:
           assert 'finishAndRemoveTask()' in android
           assert 'setFixedLengthStreamingMode(item.size)' in service
           assert 'startForeground(NOTIFICATION_ID' in service
+          web = Path('web_ui.py').read_text()
+          for marker in ('@media(max-width:700px)', '@media(min-width:701px)', 'safe-area-inset-bottom', 'download-row'):
+              assert marker in web, marker
           PY
 
           rm -rf /tmp/deckyshare-store-build
@@ -105,22 +92,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.15.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.16.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.15.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.16.zip
 
-      - name: Publish RC11.15 prerelease and Android APK
+      - name: Publish RC11.16 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.15 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.15 DeckyShare-v1.1.0-rc.11.15.zip DeckyShare-Android-v0.2.0.apk --clobber
+          if gh release view v1.1.0-rc.11.16 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.16 DeckyShare-v1.1.0-rc.11.16.zip --clobber
           else
-            gh release create v1.1.0-rc.11.15 DeckyShare-v1.1.0-rc.11.15.zip DeckyShare-Android-v0.2.0.apk \
+            gh release create v1.1.0-rc.11.16 DeckyShare-v1.1.0-rc.11.16.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.15' \
-              --notes 'Android v0.2 background-transfer test build. Share Sheet uploads move to a foreground data-sync service, the temporary share screen closes immediately, and Android notifications show progress and completion/failure. Also tightens alignment of compact Browse Files controls. Resumable large-file hardening follows after this background-flow test.'
+              --title 'DeckyShare v1.1.0-rc.11.16' \
+              --notes 'Responsive browser update. Phones now receive a compact single-column layout with full-width touch controls, safe-area spacing and improved long-name wrapping, while PCs retain the wider two-column desktop dashboard. The existing Android v0.2 app remains compatible and does not need reinstalling.'
           fi
