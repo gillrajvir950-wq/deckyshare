@@ -1,4 +1,5 @@
 from web_ui import html_page
+from exactly_once import _wrap_html_page
 
 
 def test_web_page_has_separate_mobile_and_desktop_layouts():
@@ -19,3 +20,23 @@ def test_web_page_escapes_displayed_address():
 
     assert "http://deck/&lt;script&gt;" in page
     assert "http://deck/<script>" not in page
+
+
+def test_browser_cancel_aborts_active_upload_immediately():
+    page = html_page("http://192.168.1.20:8787")
+
+    assert "new AbortController()" in page
+    assert "signal:controller.signal" in page
+    assert "uploadControl.controller.abort()" in page
+    assert "Cancelling now…" in page
+    assert "Cancelling after current chunk" not in page
+
+
+def test_immediate_cancel_survives_exactly_once_upload_wrapper():
+    page = _wrap_html_page(html_page)("http://192.168.1.20:8787")
+
+    assert "new AbortController()" in page
+    assert "signal:controller.signal" in page
+    assert "uploadControl.controller.abort()" in page
+    assert "X-DeckyShare-Upload-ID" in page
+    assert "cancelPartial(f.name,uploadId)" in page

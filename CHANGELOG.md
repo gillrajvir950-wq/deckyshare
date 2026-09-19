@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.18
+
+- Cancel now aborts the active browser upload request immediately instead of waiting for the current 4 MiB chunk.
+- Server-side cleanup still removes the partial upload and marks the transfer cancelled.
+- Cancelled uploads no longer enter the automatic connection-retry path.
+
 ## v1.1.0-rc.11.17
 
 - Replaced partial socket writes with reliable `sendall` streaming.
