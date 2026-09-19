@@ -40,6 +40,8 @@ function makePanel(){
   try { backendAPI = connectDeckyBackend(); } catch(e) { console.error("[DeckShare] API connect failed", e); }
   return function Panel(){
     const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null);
+    const [remoteEmail,setRemoteEmail]=useState(""),[remoteState,setRemoteState]=useState("idle"),[remoteProgress,setRemoteProgress]=useState(0);
+    const remoteTimerRef=useRef({resolve:null,interval:null});
     const lastReceivedRef=useRef(null);
 
     async function deckyCall(method,args={}){
@@ -103,8 +105,43 @@ function makePanel(){
       catch(e){setErr("Clear selection: "+String(e.message||e));}
     }
 
+    function resetRemoteDummy(){
+      const t=remoteTimerRef.current||{};
+      if(t.resolve) clearTimeout(t.resolve);
+      if(t.interval) clearInterval(t.interval);
+      remoteTimerRef.current={resolve:null,interval:null};
+      setRemoteState("idle");
+      setRemoteProgress(0);
+    }
+
+    function startRemoteDummy(){
+      resetRemoteDummy();
+      const email=String(remoteEmail||"").trim();
+      if(!status.selected){setErr("Send to User: choose a file first.");return;}
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setErr("Send to User: enter a valid email.");return;}
+      setErr("");
+      setRemoteState("resolving");
+      remoteTimerRef.current.resolve=setTimeout(()=>{
+        setRemoteState("connecting");
+        setTimeout(()=>{
+          setRemoteState("sending");
+          let p=0;
+          remoteTimerRef.current.interval=setInterval(()=>{
+            p=Math.min(100,p+8);
+            setRemoteProgress(p);
+            if(p>=100){
+              clearInterval(remoteTimerRef.current.interval);
+              remoteTimerRef.current.interval=null;
+              setRemoteState("sent");
+            }
+          },180);
+        },650);
+      },700);
+    }
+
     useEffect(()=>{bootstrap()},[]);
     useEffect(()=>{if(!status)return;let t=setInterval(refreshStatus,1000);return()=>clearInterval(t)},[!!status]);
+    useEffect(()=>()=>{const t=remoteTimerRef.current||{};if(t.resolve)clearTimeout(t.resolve);if(t.interval)clearInterval(t.interval);},[]);
 
     const conns=(status&&status.addresses)||[];
     const activeConn=conns[Math.min(connIndex,Math.max(0,conns.length-1))]||null;
@@ -116,7 +153,7 @@ function makePanel(){
     return h("div",{style:{padding:"4px 8px 16px",fontSize:14,color:"white",background:"linear-gradient(180deg,rgba(5,18,34,.22),rgba(4,13,25,.08))"}},
       h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 11px"}},
         h("div",{style:{fontSize:30,lineHeight:1}},"◉"),
-        h("div",{style:{flex:1}},h("div",{style:{display:"flex",alignItems:"center",gap:7}},h("div",{style:{fontWeight:800,fontSize:20,letterSpacing:.2}},"DeckyShare"),h("span",{style:{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:999,background:"rgba(80,160,255,.18)",border:"1px solid rgba(100,180,255,.34)",color:"#9fd4ff"}},"v1.0.0")),h("div",{style:{fontSize:11,color:"#9fc7ff"}},"Share files with your Steam Deck. Simple. Wireless. Fast."))
+        h("div",{style:{flex:1}},h("div",{style:{display:"flex",alignItems:"center",gap:7}},h("div",{style:{fontWeight:800,fontSize:20,letterSpacing:.2}},"DeckyShare"),h("span",{style:{fontSize:9,fontWeight:800,padding:"2px 6px",borderRadius:999,background:"rgba(80,160,255,.18)",border:"1px solid rgba(100,180,255,.34)",color:"#9fd4ff"}},"REMOTE DEMO")),h("div",{style:{fontSize:11,color:"#9fc7ff"}},"Share files with your Steam Deck. Simple. Wireless. Fast."))
       ),
       h(Card,{style:{border:"1px solid rgba(66,153,255,.35)",boxShadow:"0 8px 22px rgba(0,0,0,.18)"}},
         h(SectionTitle,{icon:"📡",title:"Connect phone / PC",sub:"Open this address on your phone or computer"}),
@@ -145,6 +182,37 @@ function makePanel(){
           h("div",{style:{fontSize:10,opacity:.55,wordBreak:"break-all",margin:"7px 1px"}},path),
           items.slice(0,100).map(it=>h(Btn,{key:it.path,onClick:()=>it.type==="dir"?browse(it.path):selectFile(it.path)},it.type==="dir"?`📁 ${it.name}  ›`:`📄 ${it.name}  •  ${it.size_human}`))
         )
+      ),
+
+      h(Card,{style:{border:"1px solid rgba(92,168,255,.30)",boxShadow:"0 8px 22px rgba(0,0,0,.14)"}},
+        h(SectionTitle,{icon:"🌐",title:"Send to User",sub:"Prototype • email-based remote transfer"}),
+        h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},"Test the Blip-style flow. This prototype does not upload the file anywhere."),
+        h("input",{
+          type:"email",
+          value:remoteEmail,
+          disabled:remoteState!=="idle"&&remoteState!=="sent",
+          placeholder:"friend@gmail.com",
+          onChange:e=>{setRemoteEmail(e.target.value);if(remoteState==="sent")resetRemoteDummy();},
+          style:{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid rgba(112,179,255,.32)",background:"rgba(10,27,47,.72)",color:"white",fontSize:13,outline:"none",marginBottom:7}
+        }),
+        status.selected
+          ? h("div",{style:{fontSize:11,background:"rgba(67,151,222,.10)",border:"1px solid rgba(102,192,244,.18)",borderRadius:9,padding:9,marginBottom:7,wordBreak:"break-word"}},"📄 "+status.selected.name+" • "+status.selected.size_human)
+          : h("div",{style:{fontSize:11,opacity:.55,padding:"5px 1px 9px"}},"Choose a file above first."),
+        h("button",{
+          onClick:startRemoteDummy,
+          disabled:!status.selected||(remoteState!=="idle"&&remoteState!=="sent"),
+          style:{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid rgba(92,168,255,.35)",background:(!status.selected||(remoteState!=="idle"&&remoteState!=="sent"))?"rgba(255,255,255,.05)":"linear-gradient(180deg,rgba(42,104,171,.72),rgba(24,65,112,.72))",color:"white",fontWeight:750,fontSize:13}
+        },remoteState==="resolving"?"Finding user…":remoteState==="connecting"?"Connecting…":remoteState==="sending"?"Sending…":remoteState==="sent"?"Send again":"Send to user"),
+        remoteState!=="idle"&&h("div",{style:{marginTop:9}},
+          h("div",{style:{fontSize:11,opacity:.75,marginBottom:5}},
+            remoteState==="resolving"?"Resolving "+remoteEmail+"…":
+            remoteState==="connecting"?"User found • establishing secure connection…":
+            remoteState==="sending"?remoteProgress+"% • simulated transfer":
+            "✓ Sent to "+remoteEmail+" (prototype)"
+          ),
+          (remoteState==="sending"||remoteState==="sent")&&h(Bar,{value:remoteState==="sent"?100:remoteProgress})
+        ),
+        h("div",{style:{fontSize:9,opacity:.42,marginTop:7}},"Prototype only • no account lookup • no internet transfer • no relay")
       ),
 
       h(Card,{style:{border:"1px solid rgba(130,92,255,.26)"}},
