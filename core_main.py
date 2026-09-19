@@ -372,10 +372,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_json(self, obj, status=200):
         data = json.dumps(obj).encode()
+        if status >= 400:
+            self.close_connection = True
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(data)
 

@@ -9,6 +9,7 @@ from http import HTTPStatus
 import http.client
 
 SOCKET_BUFFER_BYTES = 8 * 1024 * 1024
+KEEP_ALIVE_TIMEOUT_SECONDS = 30
 
 
 class _SocketWriter(io.BufferedIOBase):
@@ -50,6 +51,7 @@ class ThreadingHTTPServer:
                 request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 request.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, SOCKET_BUFFER_BYTES)
                 request.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, SOCKET_BUFFER_BYTES)
+                request.settimeout(KEEP_ALIVE_TIMEOUT_SECONDS)
             except socket.timeout:
                 continue
             except OSError:
@@ -78,7 +80,7 @@ class ThreadingHTTPServer:
 class BaseHTTPRequestHandler:
     server_version = 'BaseHTTP/0.1'
     sys_version = 'Python/' + sys.version.split()[0]
-    protocol_version = 'HTTP/1.0'
+    protocol_version = 'HTTP/1.1'
     default_request_version = 'HTTP/0.9'
     def __init__(self, request, client_address, server):
         self.request=request; self.connection=request; self.client_address=client_address; self.server=server
@@ -93,10 +95,18 @@ class BaseHTTPRequestHandler:
             except Exception: pass
             try: self.wfile.close()
             except Exception: pass
-    def handle(self): self.handle_one_request()
+    def handle(self):
+        self.close_connection = True
+        self.handle_one_request()
+        while not self.close_connection:
+            self.handle_one_request()
     def handle_one_request(self):
-        self.raw_requestline=self.rfile.readline(65537)
-        if not self.raw_requestline: return
+        try:
+            self.raw_requestline=self.rfile.readline(65537)
+        except (TimeoutError, socket.timeout, OSError):
+            self.close_connection=True; return
+        if not self.raw_requestline:
+            self.close_connection=True; return
         if len(self.raw_requestline)>65536:
             self.send_error(414,'Request URI too long'); return
         try: requestline=self.raw_requestline.decode('iso-8859-1').rstrip('\r\n')
@@ -109,6 +119,11 @@ class BaseHTTPRequestHandler:
         try: self.headers=http.client.parse_headers(self.rfile)
         except Exception:
             self.send_error(431,'Bad request headers'); return
+        connection=str(self.headers.get('Connection','')).lower()
+        if self.request_version>='HTTP/1.1':
+            self.close_connection=(connection=='close')
+        else:
+            self.close_connection=(connection!='keep-alive')
         method=getattr(self,'do_'+self.command,None)
         if method is None:
             self.send_error(501,'Unsupported method'); return

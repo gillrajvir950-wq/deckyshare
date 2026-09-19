@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.22
+
+- Keep HTTP/1.1 connections alive across sequential browser chunks instead of rebuilding TCP for every 4 MiB request.
+- Add a bounded 30-second idle timeout and close error responses safely.
+- Preserve the RC11.21 Safari worker/pipeline and exactly-once upload verification.
+
 ## v1.1.0-rc.11.21
 
 - Move browser CRC32 calculation into a Web Worker when supported.

@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.21 pipelined Safari upload
+name: Publish DeckyShare RC11.22 persistent HTTP upload
 
 on:
   push:
@@ -53,9 +53,9 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.21'
+          assert package['version'] == '1.1.0-rc.11.22'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.21', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.22', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           assert 'Android Share Sheet' not in ui
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
@@ -75,6 +75,8 @@ jobs:
           transport = Path('decky_http_server.py').read_text()
           assert 'sendall(view)' in transport
           assert 'SOCKET_BUFFER_BYTES = 8 * 1024 * 1024' in transport
+          assert "protocol_version = 'HTTP/1.1'" in transport
+          assert 'KEEP_ALIVE_TIMEOUT_SECONDS = 30' in transport
           assert "buffering=1024*1024" in transport
           assert 'min(16 * 1024 * 1024, remain)' in backend
           web = Path('web_ui.py').read_text()
@@ -101,22 +103,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.21.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.22.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.21.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.22.zip
 
-      - name: Publish RC11.21 prerelease
+      - name: Publish RC11.22 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.21 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.21 DeckyShare-v1.1.0-rc.11.21.zip --clobber
+          if gh release view v1.1.0-rc.11.22 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.22 DeckyShare-v1.1.0-rc.11.22.zip --clobber
           else
-            gh release create v1.1.0-rc.11.21 DeckyShare-v1.1.0-rc.11.21.zip \
+            gh release create v1.1.0-rc.11.22 DeckyShare-v1.1.0-rc.11.22.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.21' \
-              --notes 'Improves iPhone/Safari uploads: CRC32 runs in a Web Worker and the next 4 MiB chunk is prepared while the current chunk uploads. Sequential verified writes, retry, pause/resume and immediate cancel remain intact.'
+              --title 'DeckyShare v1.1.0-rc.11.22' \
+              --notes 'Keeps one HTTP/1.1 connection alive across sequential 4 MiB upload chunks instead of rebuilding TCP for every request. Includes the Safari CRC worker and pipelined preparation from RC11.21, with a bounded idle timeout and safe error closure.'
           fi
