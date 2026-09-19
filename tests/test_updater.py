@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -38,6 +39,31 @@ class VersionTests(unittest.TestCase):
         self.assertLess(compare_versions("1.1.0-rc.1", "1.1.0"), 0)
         self.assertEqual(compare_versions("1.1.0-rc1", "1.1.0-rc.1"), 0)
         self.assertGreater(compare_versions("2.0.0", "1.99.99"), 0)
+
+    def test_release_check_chooses_highest_semver_not_first_api_item(self):
+        releases = []
+        for version in ("1.1.0-rc.11.9", "1.1.0-rc.11.10", "1.1.0-rc.11.8"):
+            releases.append({
+                "tag_name": f"v{version}",
+                "name": f"DeckyShare {version}",
+                "draft": False,
+                "prerelease": True,
+                "assets": [{
+                    "name": f"DeckyShare-v{version}.zip",
+                    "browser_download_url": f"https://github.com/gillrajvir950-wq/deckyshare/releases/download/v{version}/DeckyShare-v{version}.zip",
+                    "size": 1234,
+                    "digest": "sha256:" + "a" * 64,
+                }],
+            })
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plugin_dir = root / "DeckyShare"
+            make_plugin(plugin_dir, "1.1.0-rc.11.9", "old")
+            manager = UpdateManager(plugin_dir, root / "home")
+            with mock.patch("updater._http_json", return_value=releases) as request:
+                release = manager._fetch_release(include_prerelease=True)
+            self.assertEqual(release["version"], "1.1.0-rc.11.10")
+            self.assertIn("per_page=100", request.call_args.args[0])
 
 
 class ArchiveTests(unittest.TestCase):

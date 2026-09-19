@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.0-rc.11.11
+
+- Fixed update discovery when GitHub returns prereleases out of semantic-version order.
+- The updater now evaluates the complete release page and selects the highest compatible version.
+
 ## v1.1.0-rc.11.10
 
 - Added controller-friendly open/close accordions to every section except Connect phone / PC.

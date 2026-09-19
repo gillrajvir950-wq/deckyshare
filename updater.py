@@ -414,9 +414,13 @@ class UpdateManager:
         }
 
     def _fetch_release(self, include_prerelease: bool = False) -> dict:
-        releases = _http_json(f"{API_RELEASES}?per_page=12")
+        # GitHub does not guarantee semantic-version ordering here. For
+        # example, rc.11.9 may be listed before rc.11.10. Fetch the full page
+        # and choose the greatest compatible version ourselves.
+        releases = _http_json(f"{API_RELEASES}?per_page=100")
         if not isinstance(releases, list):
             raise UpdateError("GitHub returned invalid release data")
+        candidates = []
         for release in releases:
             if release.get("draft"):
                 continue
@@ -428,7 +432,7 @@ class UpdateManager:
             except ValueError:
                 continue
             asset = _choose_asset(release)
-            return {
+            candidates.append({
                 "version": tag,
                 "tag": str(release.get("tag_name") or ""),
                 "name": str(release.get("name") or release.get("tag_name") or tag),
@@ -437,7 +441,13 @@ class UpdateManager:
                 "html_url": release.get("html_url"),
                 "notes": _safe_release_notes(release.get("body") or ""),
                 "asset": asset,
-            }
+            })
+        if candidates:
+            newest = candidates[0]
+            for candidate in candidates[1:]:
+                if compare_versions(candidate["version"], newest["version"]) > 0:
+                    newest = candidate
+            return newest
         raise UpdateError("No compatible DeckyShare release was found")
 
     def check(self, include_prerelease: bool = False, force: bool = False) -> dict:
