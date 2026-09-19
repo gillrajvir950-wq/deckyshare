@@ -1,0 +1,101 @@
+name: Publish DeckyShare RC11.5 controller navigation
+
+on:
+  push:
+    branches:
+      - v1.1.0-rc11-release
+    paths:
+      - .github/workflows/rc11-5-controller-navigation.yml
+      - scripts/rc11_5_patch.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download exact RC11.4 baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf build DeckyShare-v1.1.0-rc.11.4.zip DeckyShare-v1.1.0-rc.11.5.zip
+          mkdir build
+          gh release download v1.1.0-rc.11.4 --pattern 'DeckyShare-v1.1.0-rc.11.4.zip' --dir .
+          unzip -q DeckyShare-v1.1.0-rc.11.4.zip -d build
+
+      - name: Apply RC11.5 controller patch
+        run: python scripts/rc11_5_patch.py build/DeckyShare
+
+      - name: Validate and package RC11.5
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+
+          root = pathlib.Path('build/DeckyShare')
+          ui = (root / 'dist/index.js').read_text(encoding='utf-8')
+          package = json.loads((root / 'package.json').read_text(encoding='utf-8'))
+
+          assert package['version'] == '1.1.0-rc.11.5'
+          for marker in (
+              '"RC11.5"',
+              'const DialogButton = DeckyUI.DialogButton || "button"',
+              'const Focusable = DeckyUI.Focusable || "div"',
+              'const TextField = DeckyUI.TextField || "input"',
+              'onCancel:handleControllerBack',
+              'function navigateBack()',
+              'ref:index===0?firstBrowseItemRef:null',
+              'gridTemplateColumns:"auto minmax(0,1fr) auto"',
+          ):
+              assert marker in ui, marker
+          assert 'h("button",' not in ui
+          assert 'h("input",' not in ui
+          assert 'file_copy' in ui and 'file_move' in ui and 'file_trash' in ui
+          assert 'utilities/install_plugin' in ui
+
+          for source in root.rglob('*.py'):
+              compile(source.read_text(encoding='utf-8'), str(source), 'exec')
+          subprocess.run(['node', '--check', str(root / 'dist/index.js')], check=True)
+          print('RC11.5 validation passed')
+          PY
+
+          cd build
+          zip -qr ../DeckyShare-v1.1.0-rc.11.5.zip DeckyShare
+          cd ..
+
+          python - <<'PY'
+          import zipfile
+          archive = 'DeckyShare-v1.1.0-rc.11.5.zip'
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              names = set(z.namelist())
+              for required in (
+                  'DeckyShare/main.py',
+                  'DeckyShare/core_main.py',
+                  'DeckyShare/dist/index.js',
+                  'DeckyShare/updater.py',
+                  'DeckyShare/decky_http_server.py',
+              ):
+                  assert required in names, required
+          print('RC11.5 ZIP integrity passed')
+          PY
+
+      - name: Publish RC11.5 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view v1.1.0-rc.11.5 >/dev/null 2>&1; then
+            gh release create v1.1.0-rc.11.5 DeckyShare-v1.1.0-rc.11.5.zip \
+              --prerelease \
+              --target v1.1.0-rc11-release \
+              --title 'DeckyShare v1.1.0-rc.11.5' \
+              --notes 'RC11.5 adds native Steam Deck controller navigation throughout the panel using Decky UI Focusable, DialogButton and TextField controls. D-pad/left-stick moves focus, A activates the selected control, and B cancels an open file-manager mode or goes back one folder. At a quick-location root, B returns to Locations. A visible one-press Back button and automatic first-row focus are also included. RC11.4 compact rows and all RC11 file operations remain intact.'
+          fi
