@@ -18,8 +18,8 @@ function SectionTitle({icon,title,sub}){return h("div",{style:{display:"flex",ga
 function connectDeckyBackend(){
   const init = window.__DECKY_SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED_deckyLoaderAPIInit;
   if(!init || typeof init.connect !== "function") throw new Error("Decky loader API is not initialized");
-  try { return init.connect(2, "DeckyShare"); }
-  catch(e) { return init.connect(1, "DeckyShare"); }
+  try { return init.connect(2, "DeckyShareRemoteDemo"); }
+  catch(e) { return init.connect(1, "DeckyShareRemoteDemo"); }
 }
 
 function showReceivedToast(api,item){
@@ -257,8 +257,8 @@ export default function(){
     }
   }catch(e){console.error("[DeckShare] global receive notifications unavailable",e);}
   return {
-    name:"DeckShare",
-    titleView:h("div",{style:{fontWeight:700}},"DeckyShare"),
+    name:"DeckyShareRemoteDemo",
+    titleView:h("div",{style:{fontWeight:700}},"DeckyShare Remote Demo"),
     content:h(Panel),
     icon:h("div",{style:{fontSize:20}},"↔"),
     onDismount(){
