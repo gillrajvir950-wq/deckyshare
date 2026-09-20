@@ -27,6 +27,12 @@ def _upload_lock(upload_id):
         return lock
 
 
+def _retire_transfer(core, tid):
+    """Hide a disconnected request while keeping its resumable upload session."""
+    with core.STATE.lock:
+        core.STATE.transfers.pop(tid, None)
+
+
 def _drain(handler, length):
     remain = max(0, int(length or 0))
     while remain:
@@ -157,7 +163,11 @@ def _install_put(core):
                     return self.send_json({"received": current, "resume": True}, 409)
                 return self.send_json({"error": str(e), "received": current}, 400)
 
-            tid = session["tid"]
+            with core.STATE.lock:
+                tid = session["tid"]
+                if tid not in core.STATE.transfers:
+                    tid = core.STATE.new_transfer("upload", name, total, current)
+                    session["tid"] = tid
             cancel_event = session["cancel_event"]
             expected_crc = self.headers.get("X-DeckyShare-CRC32", "").strip().lower()
             fast_mode = self.headers.get("X-DeckyShare-Fast", "") == "1"
@@ -202,11 +212,11 @@ def _install_put(core):
                         if not fast_mode:
                             f.truncate(chunk_start)
                             current = chunk_start
-                        core.STATE.update_transfer(tid, current)
                         with core.STATE.lock:
                             active = core.STATE.upload_sessions.get(upload_id)
                             if active:
                                 active["updated"] = time.time()
+                        _retire_transfer(core, tid)
                         return self.send_json({"error": "Incomplete request body", "received": current}, 400)
                     actual_crc = core.crc32_value_hex(crc)
                     if expected_crc and actual_crc != expected_crc:
@@ -278,14 +288,14 @@ def _install_put(core):
                 # from this exact checkpoint instead of replaying the whole request.
                 if fast_mode:
                     current = part.stat().st_size if part.exists() else chunk_start
-                    core.STATE.update_transfer(tid, current)
                     with core.STATE.lock:
                         active = core.STATE.upload_sessions.get(upload_id)
                         if active:
                             active["updated"] = time.time()
+                    _retire_transfer(core, tid)
                     return None
                 _rollback_part(part, chunk_start)
-                core.STATE.update_transfer(tid, chunk_start)
+                _retire_transfer(core, tid)
                 return None
             except OSError as e:
                 _rollback_part(part, chunk_start)

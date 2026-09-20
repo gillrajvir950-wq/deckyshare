@@ -172,13 +172,15 @@ class State:
         self.shortcut_pairing_expires = 0.0
         self.shortcut_pairing_attempts = {}
 
-    def new_transfer(self, direction, name, total):
+    def new_transfer(self, direction, name, total, initial_done=0):
         tid = secrets.token_hex(6)
         now = time.time()
+        initial_done = max(0, int(initial_done or 0))
         with self.lock:
             self.transfers[tid] = {
                 "id": tid, "direction": direction, "name": name,
-                "total": int(total or 0), "done": 0, "started": now,
+                "total": int(total or 0), "done": initial_done,
+                "base_done": initial_done, "started": now,
                 "updated": now, "status": "active"
             }
         return tid
@@ -242,7 +244,7 @@ class State:
             out = []
             for t in self.transfers.values():
                 elapsed = max(0.001, now - t["started"])
-                speed = t["done"] / elapsed
+                speed = max(0, t["done"] - t.get("base_done", 0)) / elapsed
                 remain = max(0, t["total"] - t["done"])
                 eta = (remain / speed) if speed > 1 else None
                 x = dict(t)

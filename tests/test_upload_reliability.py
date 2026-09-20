@@ -21,6 +21,20 @@ def unique_destination_path(path):
 
 
 class UploadReliabilityTests(unittest.TestCase):
+    def test_interrupted_fast_request_is_removed_from_live_transfers(self):
+        source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
+
+        self.assertIn("def _retire_transfer(core, tid):", source)
+        self.assertIn("core.STATE.transfers.pop(tid, None)", source)
+        self.assertIn('core.STATE.new_transfer("upload", name, total, current)', source)
+
+    def test_resumed_transfer_speed_uses_only_new_request_bytes(self):
+        source = (Path(__file__).resolve().parents[1] / "core_main.py").read_text(encoding="utf-8")
+
+        self.assertIn("def new_transfer(self, direction, name, total, initial_done=0):", source)
+        self.assertIn('"base_done": initial_done', source)
+        self.assertIn('t["done"] - t.get("base_done", 0)', source)
+
     def test_active_cancel_is_signalled_without_waiting_for_upload_lock(self):
         source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
         cancel_handler = source[source.index("def _install_post"):source.index("def _wrap_html_page")]

@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.26
+
+- Removes interrupted or abandoned upload requests from Live Transfers immediately, eliminating duplicate ghost entries.
+- Starts a fresh speed timer from the saved Deck checkpoint when an interrupted upload resumes, fixing misleading low speed and ETA values.
+- Keeps Fast Mode data resumable while separating the persistent upload session from the visible live request.
+
 ## v1.1.0-rc.11.25
 
 - Adds a Blip-inspired Fast Mode for browser uploads: Safari, iPhone, Android, and desktop browsers now send one continuous native file stream instead of repeatedly reading and checksumming 4 MiB blocks in JavaScript.

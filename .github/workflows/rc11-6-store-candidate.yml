@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.25 Fast Mode
+name: Publish DeckyShare RC11.26 live-transfer cleanup
 
 on:
   push:
@@ -53,9 +53,9 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.25'
+          assert package['version'] == '1.1.0-rc.11.26'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.25', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.26', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           assert 'Android Share Sheet' not in ui
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
@@ -83,8 +83,10 @@ jobs:
           for marker in ('@media(max-width:700px)', '@media(min-width:701px)', 'safe-area-inset-bottom', 'download-row', 'new XMLHttpRequest()', 'X-DeckyShare-Fast', 'xhr.send(f.slice(off))', 'stableCheckpoint', 'controller.abort()', 'Cancelling now…'):
               assert marker in web, marker
           reliability = Path('exactly_once.py').read_text()
-          for marker in ('cancel_event', 'cleanup_pending', 'status="cancelled"', '_install_get', 'fast_mode', '16 * 1024 * 1024'):
+          for marker in ('cancel_event', 'cleanup_pending', 'status="cancelled"', '_install_get', 'fast_mode', '16 * 1024 * 1024', '_retire_transfer', 'new_transfer("upload", name, total, current)'):
               assert marker in reliability, marker
+          for marker in ('initial_done=0', '"base_done": initial_done', 't["done"] - t.get("base_done", 0)'):
+              assert marker in backend, marker
           PY
 
           rm -rf /tmp/deckyshare-store-build
@@ -103,22 +105,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.25.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.26.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.25.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.26.zip
 
-      - name: Publish RC11.25 prerelease
+      - name: Publish RC11.26 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.25 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.25 DeckyShare-v1.1.0-rc.11.25.zip --clobber
+          if gh release view v1.1.0-rc.11.26 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.26 DeckyShare-v1.1.0-rc.11.26.zip --clobber
           else
-            gh release create v1.1.0-rc.11.25 DeckyShare-v1.1.0-rc.11.25.zip \
+            gh release create v1.1.0-rc.11.26 DeckyShare-v1.1.0-rc.11.26.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.25' \
-              --notes 'Adds a Blip-inspired Fast Mode: the browser sends one continuous native file stream, while Steam Deck keeps a live receiver checkpoint for pause, interruption, and resume. This removes Safari’s repeated JavaScript chunk-read and CRC loop. Cancel still deletes the partial upload.'
+              --title 'DeckyShare v1.1.0-rc.11.26' \
+              --notes 'Fixes duplicate ghost entries in Live Transfers after interruption, cancellation, or page reload. Resumed Fast Mode uploads now receive a fresh speed and ETA timer while continuing from the Deck checkpoint.'
           fi
