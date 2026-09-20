@@ -25,38 +25,33 @@ def test_web_page_escapes_displayed_address():
 def test_browser_cancel_aborts_active_upload_immediately():
     page = html_page("http://192.168.1.20:8787")
 
-    assert "let chunk=4*1024*1024" in page
-    assert "new AbortController()" in page
-    assert "signal:controller.signal" in page
+    assert "new XMLHttpRequest()" in page
+    assert "X-DeckyShare-Fast" in page
+    assert "xhr.send(f.slice(off))" in page
     assert "uploadControl.controller.abort()" in page
     assert "Cancelling now…" in page
     assert "Cancelling after current chunk" not in page
 
 
-def test_browser_prepares_crc_off_main_thread_and_pipelines_next_chunk():
+def test_browser_uses_native_fast_stream_with_receiver_checkpoint():
     page = html_page("http://192.168.1.20:8787")
 
-    assert "new Worker(" in page
-    assert "crc32Async(buffer)" in page
-    assert "prepareUploadChunk(f,off,chunk)" in page
-    assert "nextPromise=current.end<f.size?prepareUploadChunk" in page
-    assert "body:current.blob" in page
+    assert "uploadOneFast(f,onProgress,onRetry)" in page
+    assert "uploadOneReliable(f,onProgress,onRetry)" in page
+    assert "typeof XMLHttpRequest==='undefined'" in page
+    assert "/api/upload-status?upload_id=" in page
+    assert "stableCheckpoint(f,uploadId,off)" in page
+    assert "native continuous stream" in page
+    assert "xhr.upload.onprogress" in page
     assert 'id="diag"' in page
-    assert "Chunk diagnostic" in page
-    assert "current.readMs" in page
-    assert "current.crcMs" in page
-    assert "j.server_ms" in page
-    assert "buffer:e.data.buffer" in page
-    assert "checked.buffer" in page
-    assert "new Uint8Array(e.data.buffer)" not in page
+    assert "prepareUploadChunk(f,off,chunk)" in page  # retained reliability helper
 
 
 def test_immediate_cancel_survives_exactly_once_upload_wrapper():
     page = _wrap_html_page(html_page)("http://192.168.1.20:8787")
 
-    assert "new AbortController()" in page
-    assert "let chunk=4*1024*1024" in page
-    assert "signal:controller.signal" in page
+    assert "new XMLHttpRequest()" in page
+    assert "X-DeckyShare-Fast" in page
     assert "uploadControl.controller.abort()" in page
     assert "X-DeckyShare-Upload-ID" in page
     assert "cancelPartial(f.name,uploadId)" in page

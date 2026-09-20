@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.25
+
+- Adds a Blip-inspired Fast Mode for browser uploads: Safari, iPhone, Android, and desktop browsers now send one continuous native file stream instead of repeatedly reading and checksumming 4 MiB blocks in JavaScript.
+- Keeps the partial file on Steam Deck when a fast upload is paused, interrupted, or backgrounded, then resumes from the Deck's confirmed byte offset.
+- Makes Pause abort the active browser request immediately and resume from a stable receiver checkpoint; Cancel still removes the partial upload.
+- Uses larger server reads for Fast Mode and exposes an authenticated upload-status endpoint for reliable recovery.
+
 ## v1.1.0-rc.11.24
 
 - Reuse each iPhone/Safari file buffer for upload after worker CRC verification instead of reading the same chunk from the file provider twice.

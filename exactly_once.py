@@ -160,6 +160,7 @@ def _install_put(core):
             tid = session["tid"]
             cancel_event = session["cancel_event"]
             expected_crc = self.headers.get("X-DeckyShare-CRC32", "").strip().lower()
+            fast_mode = self.headers.get("X-DeckyShare-Fast", "") == "1"
             if expected_crc and (len(expected_crc) != 8 or any(c not in "0123456789abcdef" for c in expected_crc)):
                 _drain(self, length)
                 return self.send_json({"error": "Bad checksum"}, 400)
@@ -173,7 +174,8 @@ def _install_put(core):
                     while remain:
                         if cancel_event.is_set():
                             raise _UploadCancelled()
-                        chunk = self.rfile.read(min(4 * 1024 * 1024, remain))
+                        read_size = 16 * 1024 * 1024 if fast_mode else 4 * 1024 * 1024
+                        chunk = self.rfile.read(min(read_size, remain))
                         if cancel_event.is_set():
                             raise _UploadCancelled()
                         if not chunk:
@@ -197,9 +199,14 @@ def _install_put(core):
                     if cancel_event.is_set():
                         raise _UploadCancelled()
                     if remain:
-                        f.truncate(chunk_start)
-                        current = chunk_start
+                        if not fast_mode:
+                            f.truncate(chunk_start)
+                            current = chunk_start
                         core.STATE.update_transfer(tid, current)
+                        with core.STATE.lock:
+                            active = core.STATE.upload_sessions.get(upload_id)
+                            if active:
+                                active["updated"] = time.time()
                         return self.send_json({"error": "Incomplete request body", "received": current}, 400)
                     actual_crc = core.crc32_value_hex(crc)
                     if expected_crc and actual_crc != expected_crc:
@@ -265,6 +272,21 @@ def _install_put(core):
                     return self.send_json({"cancelled": True, "received": chunk_start, "upload_id": upload_id})
                 except OSError:
                     return None
+            except (BrokenPipeError, ConnectionResetError):
+                # Fast mode intentionally keeps every byte already accepted by the
+                # Deck. Safari pause/background/network interruption can then resume
+                # from this exact checkpoint instead of replaying the whole request.
+                if fast_mode:
+                    current = part.stat().st_size if part.exists() else chunk_start
+                    core.STATE.update_transfer(tid, current)
+                    with core.STATE.lock:
+                        active = core.STATE.upload_sessions.get(upload_id)
+                        if active:
+                            active["updated"] = time.time()
+                    return None
+                _rollback_part(part, chunk_start)
+                core.STATE.update_transfer(tid, chunk_start)
+                return None
             except OSError as e:
                 _rollback_part(part, chunk_start)
                 core.STATE.update_transfer(tid, chunk_start)
@@ -278,6 +300,55 @@ def _install_put(core):
                 raise
 
     core.Handler.do_PUT = do_PUT
+
+
+def _install_get(core):
+    old_get = core.Handler.do_GET
+
+    def do_GET(self):
+        u = core.urllib.parse.urlsplit(self.path)
+        if u.path != "/api/upload-status":
+            return old_get(self)
+        if not self.token_ok():
+            self.send_error(403)
+            return
+
+        q = core.urllib.parse.parse_qs(u.query)
+        try:
+            upload_id = safe_upload_id(q.get("upload_id", [""])[0])
+            name = Path(q.get("name", [""])[0]).name
+            total = core.parse_nonnegative_int(q.get("total", ["0"])[0], "total")
+        except ValueError as e:
+            return self.send_json({"error": str(e)}, 400)
+        if not name:
+            return self.send_json({"error": "Missing filename"}, 400)
+
+        _clean_state(core)
+        with core.STATE.lock:
+            completed = core.STATE.completed_uploads.get(upload_id)
+            session = core.STATE.upload_sessions.get(upload_id)
+        if completed:
+            if completed["original_name"] != name or completed["total"] != total:
+                return self.send_json({"error": "Upload ID already belongs to another file"}, 409)
+            return self.send_json({
+                "received": total,
+                "complete": True,
+                "name": completed["name"],
+                "verified": completed.get("verified", False),
+            })
+        if session:
+            if session["name"] != name or session["total"] != total:
+                return self.send_json({"error": "Upload ID already belongs to another file"}, 409)
+            part = Path(session["part"])
+            received = part.stat().st_size if part.exists() else 0
+            return self.send_json({
+                "received": min(received, total),
+                "complete": False,
+                "name": name,
+            })
+        return self.send_json({"received": 0, "complete": False, "name": name})
+
+    core.Handler.do_GET = do_GET
 
 
 def _install_post(core):
@@ -330,16 +401,8 @@ def _install_post(core):
 def _wrap_html_page(original):
     def html_page(address):
         page = original(address)
-        old_cancel = "async function cancelPartial(name){try{await api('/api/cancel-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});}catch(e){}}"
-        new_cancel = "async function cancelPartial(name,uploadId){try{await api('/api/cancel-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,upload_id:uploadId})});}catch(e){}}"
-        page = page.replace(old_cancel, new_cancel)
-        old_start = "async function uploadOne(f,onProgress,onRetry){let chunk=4*1024*1024,off=0,lastName=f.name,retries=0,first=true,prepared=null;"
-        new_start = "async function uploadOne(f,onProgress,onRetry){const uploadId=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():('ds_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12));let chunk=4*1024*1024,off=0,lastName=f.name,retries=0,first=true,prepared=null;"
-        page = page.replace(old_start, new_start)
-        page = page.replace("'X-DeckyShare-CRC32':current.sum", "'X-DeckyShare-CRC32':current.sum,'X-DeckyShare-Upload-ID':uploadId")
-        page = page.replace("cancelPartial(f.name)", "cancelPartial(f.name,uploadId)")
-        if "X-DeckyShare-Upload-ID" not in page or "upload_id:uploadId" not in page:
-            raise RuntimeError("DeckyShare upload-id UI patch did not apply")
+        if "X-DeckyShare-Upload-ID" not in page or "upload_id:uploadId" not in page or "X-DeckyShare-Fast" not in page:
+            raise RuntimeError("DeckyShare fast upload UI is missing reliability markers")
         return page
     return html_page
 
@@ -352,5 +415,6 @@ def install(core):
         core.STATE.completed_uploads = {}
         core.STATE._exactly_once_installed = True
     _install_put(core)
+    _install_get(core)
     _install_post(core)
     core.html_page = _wrap_html_page(core.html_page)
