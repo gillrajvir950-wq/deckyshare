@@ -60,6 +60,18 @@ def test_large_browser_uploads_use_three_parallel_native_lanes():
     assert "Turbo mode • 3 parallel native streams" in page
 
 
+def test_maximum_speed_mode_is_a_single_non_resumable_stream():
+    page = html_page("http://192.168.1.20:8787")
+
+    assert 'id="maxspeed" type="checkbox" checked' in page
+    assert "Maximum Speed (No Resume)" in page
+    assert "uploadOneMaximum(f,onProgress)" in page
+    assert "X-DeckyShare-No-Resume" in page
+    assert "xhr.send(f)" in page
+    assert "one raw continuous stream • no checkpoints" in page
+    assert "pause.disabled=noResume" in page
+
+
 def test_immediate_cancel_survives_exactly_once_upload_wrapper():
     page = _wrap_html_page(html_page)("http://192.168.1.20:8787")
 

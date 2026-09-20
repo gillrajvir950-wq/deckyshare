@@ -66,6 +66,16 @@ class UploadReliabilityTests(unittest.TestCase):
         self.assertIn('"lane_done": [0] * lanes', source)
         self.assertIn('session.get("mode") == "parallel"', source)
 
+    def test_no_resume_mode_uses_a_coalesced_single_stream_hot_path(self):
+        source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
+
+        self.assertIn("def _handle_no_resume_put(", source)
+        self.assertIn('self.headers.get("X-DeckyShare-No-Resume", "") == "1"', source)
+        self.assertIn('"mode": "no_resume"', source)
+        self.assertIn('with open(part, "wb", buffering=0) as output:', source)
+        self.assertIn("current - last_report_bytes >= 4 * 1024 * 1024", source)
+        self.assertIn('"restart_required": True', source)
+
     def test_active_cancel_is_signalled_without_waiting_for_upload_lock(self):
         source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
         cancel_handler = source[source.index("def _install_post"):source.index("def _wrap_html_page")]

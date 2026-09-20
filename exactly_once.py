@@ -354,6 +354,114 @@ def _handle_parallel_put(core, handler, q, name, upload_id, offset, total, lengt
             return _send_storage_error(handler, e, 0)
 
 
+def _handle_no_resume_put(core, handler, name, upload_id, offset, total, length,
+                          target, client_key, request_started):
+    """Receive one uninterrupted raw stream with the smallest possible hot path."""
+    if offset != 0 or length != total:
+        _drain(handler, length)
+        return handler.send_json({"error": "Maximum Speed mode requires one complete stream"}, 400)
+
+    part = upload_part_path(core.STATE.receive_dir, upload_id)
+    try:
+        part.parent.mkdir(parents=True, exist_ok=True)
+        part.unlink(missing_ok=True)
+    except OSError as e:
+        return _send_storage_error(handler, e, 0)
+
+    session = {
+        "name": name,
+        "total": total,
+        "part": str(part),
+        "tid": core.STATE.new_transfer("upload", name, total),
+        "updated": time.time(),
+        "client_key": client_key,
+        "cancel_event": threading.Event(),
+        "mode": "no_resume",
+    }
+    with core.STATE.lock:
+        if upload_id in core.STATE.upload_sessions:
+            _drain(handler, length)
+            return handler.send_json({"error": "Upload ID is already active"}, 409)
+        core.STATE.upload_sessions[upload_id] = session
+
+    current = 0
+    remain = length
+    last_report_bytes = 0
+    last_report_at = time.monotonic()
+
+    def cleanup(status):
+        with core.STATE.lock:
+            if core.STATE.upload_sessions.get(upload_id) is session:
+                core.STATE.upload_sessions.pop(upload_id, None)
+        try:
+            part.unlink(missing_ok=True)
+        except OSError:
+            pass
+        core.STATE.update_transfer(session["tid"], current, status)
+
+    try:
+        # Do not calculate checksums, checkpoints or range metadata here. Progress
+        # is intentionally coalesced so tiny mobile socket reads do not contend on
+        # Decky's shared state lock for every packet.
+        with open(part, "wb", buffering=0) as output:
+            while remain:
+                if session["cancel_event"].is_set():
+                    raise _UploadCancelled()
+                chunk = _read_upload_chunk(handler, remain, True)
+                if not chunk:
+                    break
+                written = output.write(chunk)
+                if written != len(chunk):
+                    raise OSError("Short Maximum Speed upload write")
+                current += written
+                remain -= written
+                now = time.monotonic()
+                if current - last_report_bytes >= 4 * 1024 * 1024 or now - last_report_at >= 0.25:
+                    core.STATE.update_transfer(session["tid"], current)
+                    last_report_bytes = current
+                    last_report_at = now
+
+        if session["cancel_event"].is_set():
+            raise _UploadCancelled()
+        if remain or current != total:
+            cleanup("failed")
+            return handler.send_json({
+                "error": "Connection ended before the complete file arrived",
+                "received": current,
+                "restart_required": True,
+            }, 400)
+
+        saved_target = core.unique_destination_path(target)
+        os.replace(part, saved_target)
+        with core.STATE.lock:
+            if core.STATE.upload_sessions.get(upload_id) is session:
+                core.STATE.upload_sessions.pop(upload_id, None)
+        core.STATE.update_transfer(session["tid"], total, "complete")
+        item = core.STATE.record_received(saved_target)
+        core.notify_file_received(item)
+        return handler.send_json({
+            "received": total,
+            "complete": True,
+            "name": saved_target.name,
+            "verified": False,
+            "upload_id": upload_id,
+            "no_resume": True,
+            "server_ms": round((time.perf_counter() - request_started) * 1000, 1),
+        })
+    except _UploadCancelled:
+        cleanup("cancelled")
+        try:
+            return handler.send_json({"cancelled": True, "received": 0, "upload_id": upload_id})
+        except OSError:
+            return None
+    except (BrokenPipeError, ConnectionResetError):
+        cleanup("failed")
+        return None
+    except OSError as e:
+        cleanup("failed")
+        return _send_storage_error(handler, e, 0)
+
+
 def _install_put(core):
     def do_PUT(self):
         request_started = time.perf_counter()
@@ -387,6 +495,12 @@ def _install_put(core):
                 core, self, q, name, upload_id, offset, total, length,
                 target, client_key, request_started,
             )
+        if self.headers.get("X-DeckyShare-No-Resume", "") == "1":
+            with _upload_lock(upload_id):
+                return _handle_no_resume_put(
+                    core, self, name, upload_id, offset, total, length,
+                    target, client_key, request_started,
+                )
         with _upload_lock(upload_id):
             with core.STATE.lock:
                 completed = core.STATE.completed_uploads.get(upload_id)
@@ -692,7 +806,8 @@ def _wrap_html_page(original):
     def html_page(address):
         page = original(address)
         if ("X-DeckyShare-Upload-ID" not in page or "upload_id:uploadId" not in page or
-                "X-DeckyShare-Fast" not in page or "X-DeckyShare-Parallel" not in page):
+                "X-DeckyShare-Fast" not in page or "X-DeckyShare-Parallel" not in page or
+                "X-DeckyShare-No-Resume" not in page):
             raise RuntimeError("DeckyShare fast upload UI is missing reliability markers")
         return page
     return html_page

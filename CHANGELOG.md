@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.29
+
+- Adds an optional, default-on Maximum Speed mode for browser-to-Deck transfers using one uninterrupted raw stream with no resume checkpoints, range lanes, or CRC work.
+- Coalesces Deck-side progress updates so small mobile socket reads do not contend on shared transfer state for every packet.
+- Keeps immediate cancellation, live progress, ETA, safe temporary-file writes, duplicate-name protection, and automatic partial cleanup.
+- Keeps the existing resumable Turbo/Fast modes available by turning Maximum Speed off; Pause is intentionally unavailable while Maximum Speed is active.
+
 ## v1.1.0-rc.11.28
 
 - Adds Turbo Mode for files of 64 MiB or larger, using three parallel native browser upload streams to utilize multiple HTTP connections.
