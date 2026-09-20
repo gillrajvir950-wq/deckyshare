@@ -46,6 +46,9 @@ def test_browser_prepares_crc_off_main_thread_and_pipelines_next_chunk():
     assert "current.readMs" in page
     assert "current.crcMs" in page
     assert "j.server_ms" in page
+    assert "buffer:e.data.buffer" in page
+    assert "checked.buffer" in page
+    assert "new Uint8Array(e.data.buffer)" not in page
 
 
 def test_immediate_cancel_survives_exactly_once_upload_wrapper():

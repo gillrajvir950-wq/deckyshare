@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.23 upload diagnostics
+name: Publish DeckyShare RC11.24 iPhone upload fix
 
 on:
   push:
@@ -53,9 +53,9 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.23'
+          assert package['version'] == '1.1.0-rc.11.24'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.23', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.24', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           assert 'Android Share Sheet' not in ui
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
@@ -103,22 +103,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.23.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.24.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.23.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.24.zip
 
-      - name: Publish RC11.23 prerelease
+      - name: Publish RC11.24 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.23 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.23 DeckyShare-v1.1.0-rc.11.23.zip --clobber
+          if gh release view v1.1.0-rc.11.24 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.24 DeckyShare-v1.1.0-rc.11.24.zip --clobber
           else
-            gh release create v1.1.0-rc.11.23 DeckyShare-v1.1.0-rc.11.23.zip \
+            gh release create v1.1.0-rc.11.24 DeckyShare-v1.1.0-rc.11.24.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.23' \
-              --notes 'Adds live per-chunk Read, CRC, Upload, and Server timings to identify the remaining iPhone/Safari throughput bottleneck without guessing. Keeps the existing reliability, cancellation, worker pipeline, and HTTP/1.1 transport changes.'
+              --title 'DeckyShare v1.1.0-rc.11.24' \
+              --notes 'Fixes duplicate iPhone/Safari file reads by returning the verified ArrayBuffer from the CRC worker and uploading that same buffer directly. Keeps resumable 4 MiB chunks, checksums, pause/resume, cancellation, and live diagnostics.'
           fi

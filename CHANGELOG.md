@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.0-rc.11.24
+
+- Reuse each iPhone/Safari file buffer for upload after worker CRC verification instead of reading the same chunk from the file provider twice.
+- Keep the existing resumable 4 MiB transfer, checksum verification, pause/resume, and immediate cancellation behavior.
+
 ## v1.1.0-rc.11.23
 
 - Show per-chunk Read, CRC, browser Upload, and server processing timings on the transfer page.
