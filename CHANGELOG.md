@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.28
+
+- Adds Turbo Mode for files of 64 MiB or larger, using three parallel native browser upload streams to utilize multiple HTTP connections.
+- Writes the three non-overlapping ranges directly to their final offsets on Steam Deck, avoiding a second join/copy pass and extra full-file disk usage.
+- Keeps per-lane Deck checkpoints for pause, reconnect, and retry while showing one combined transfer and progress value.
+- Preserves the single-stream Fast Mode for smaller files and the CRC-verified Reliable Mode fallback.
+
 ## v1.1.0-rc.11.27
 
 - Stops an older upload stream when the same device retries the same file, preventing background requests from splitting Wi-Fi bandwidth with the new attempt.

@@ -1,4 +1,4 @@
-name: Publish DeckyShare RC11.27 retry throughput fix
+name: Publish DeckyShare RC11.28 parallel Turbo Mode
 
 on:
   push:
@@ -53,9 +53,9 @@ jobs:
           manifest = json.loads(Path('plugin.json').read_text())
           ui = Path('dist/index.js').read_text()
           backend = Path('core_main.py').read_text()
-          assert package['version'] == '1.1.0-rc.11.27'
+          assert package['version'] == '1.1.0-rc.11.28'
           assert manifest['publish']['image'].startswith('https://')
-          for marker in ('RC11.27', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
+          for marker in ('RC11.28', 'inset 3px 0 0 #66c0f4', 'deckyshare-compact-action', 'handleControllerBack', 'CONTROLLER_FOCUS_STYLE', 'AccordionCard', 'aria-expanded', 'compact: true', 'noFocusRing', 'DialogButton', 'Focusable', 'TextField'):
               assert marker in ui, marker
           assert 'Android Share Sheet' not in ui
           for marker in ('secrets.compare_digest', 'SameSite=Strict', 'HttpOnly', 'loopback_client'):
@@ -80,10 +80,10 @@ jobs:
           assert "buffering=1024*1024" in transport
           assert 'min(16 * 1024 * 1024, remain)' in backend
           web = Path('web_ui.py').read_text()
-          for marker in ('@media(max-width:700px)', '@media(min-width:701px)', 'safe-area-inset-bottom', 'download-row', 'new XMLHttpRequest()', 'X-DeckyShare-Fast', 'xhr.send(f.slice(off))', 'stableCheckpoint', 'controller.abort()', 'Cancelling now…'):
+          for marker in ('@media(max-width:700px)', '@media(min-width:701px)', 'safe-area-inset-bottom', 'download-row', 'new XMLHttpRequest()', 'X-DeckyShare-Fast', 'X-DeckyShare-Parallel', 'uploadOneParallel', 'lanes=3', 'abortActiveUploads()', 'stableCheckpoint', 'Cancelling now…'):
               assert marker in web, marker
           reliability = Path('exactly_once.py').read_text()
-          for marker in ('cancel_event', 'cleanup_pending', 'status="cancelled"', '_install_get', 'fast_mode', '_read_upload_chunk', '_supersede_prior_streams', '_retire_transfer', 'new_transfer("upload", name, total, current)'):
+          for marker in ('cancel_event', 'cleanup_pending', 'status="cancelled"', '_install_get', 'fast_mode', '_read_upload_chunk', '_supersede_prior_streams', '_parallel_boundaries', '_handle_parallel_put', 'os.pwrite', '_retire_transfer', 'new_transfer("upload", name, total, current)'):
               assert marker in reliability, marker
           for marker in ('initial_done=0', '"base_done": initial_done', 't["done"] - t.get("base_done", 0)'):
               assert marker in backend, marker
@@ -105,22 +105,22 @@ jobs:
             --exclude '*.pyc' \
             py_modules/ /tmp/deckyshare-store-build/DeckyShare/py_modules/
           cd /tmp/deckyshare-store-build
-          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.27.zip" DeckyShare
+          zip -qr "$GITHUB_WORKSPACE/DeckyShare-v1.1.0-rc.11.28.zip" DeckyShare
 
           cd "$GITHUB_WORKSPACE"
-          unzip -t DeckyShare-v1.1.0-rc.11.27.zip
+          unzip -t DeckyShare-v1.1.0-rc.11.28.zip
 
-      - name: Publish RC11.27 prerelease
+      - name: Publish RC11.28 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view v1.1.0-rc.11.27 >/dev/null 2>&1; then
-            gh release upload v1.1.0-rc.11.27 DeckyShare-v1.1.0-rc.11.27.zip --clobber
+          if gh release view v1.1.0-rc.11.28 >/dev/null 2>&1; then
+            gh release upload v1.1.0-rc.11.28 DeckyShare-v1.1.0-rc.11.28.zip --clobber
           else
-            gh release create v1.1.0-rc.11.27 DeckyShare-v1.1.0-rc.11.27.zip \
+            gh release create v1.1.0-rc.11.28 DeckyShare-v1.1.0-rc.11.28.zip \
               --prerelease \
               --target store-v1.1.0-prep \
-              --title 'DeckyShare v1.1.0-rc.11.27' \
-              --notes 'Improves repeat-upload throughput by stopping an older stream when the same device retries the same file. Fast Mode now uses responsive socket reads and skips redundant CRC work, while Cancel fully resets the browser upload UI.'
+              --title 'DeckyShare v1.1.0-rc.11.28' \
+              --notes 'Adds tus-inspired Turbo Mode for large browser uploads: three parallel native HTTP streams write non-overlapping ranges directly to the Deck file. Per-lane checkpoints retain pause, retry, and cancellation behavior without a second full-file copy.'
           fi

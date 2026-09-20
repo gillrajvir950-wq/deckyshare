@@ -12,6 +12,8 @@ _COMPLETED_TTL = 60 * 60
 _STALE_SESSION_TTL = 24 * 60 * 60
 _upload_locks = {}
 _upload_locks_guard = threading.Lock()
+_parallel_lane_locks = {}
+_parallel_lane_locks_guard = threading.Lock()
 
 
 class _UploadCancelled(Exception):
@@ -25,6 +27,22 @@ def _upload_lock(upload_id):
             lock = threading.Lock()
             _upload_locks[upload_id] = lock
         return lock
+
+
+def _parallel_lane_lock(upload_id, lane):
+    key = (upload_id, int(lane))
+    with _parallel_lane_locks_guard:
+        lock = _parallel_lane_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _parallel_lane_locks[key] = lock
+        return lock
+
+
+def _parallel_boundaries(total, lane, lanes):
+    if lanes < 2 or lanes > 4 or lane < 0 or lane >= lanes:
+        raise ValueError("Invalid parallel lane")
+    return total * lane // lanes, total * (lane + 1) // lanes
 
 
 def _retire_transfer(core, tid):
@@ -136,6 +154,206 @@ def _replay_response(core, handler, record, length):
     })
 
 
+def _parallel_snapshot(session):
+    done = [max(0, int(value or 0)) for value in session.get("lane_done", [])]
+    return done, sum(done)
+
+
+def _cancel_parallel_session(core, upload_id, session):
+    session["cancel_event"].set()
+    with core.STATE.lock:
+        if core.STATE.upload_sessions.get(upload_id) is session:
+            core.STATE.upload_sessions.pop(upload_id, None)
+    try:
+        Path(session["part"]).unlink(missing_ok=True)
+    except OSError:
+        pass
+    core.STATE.update_transfer(session["tid"], status="cancelled")
+
+
+def _finish_parallel_upload(core, upload_id, session, target):
+    with session["finalize_lock"]:
+        with core.STATE.lock:
+            completed = core.STATE.completed_uploads.get(upload_id)
+            active = core.STATE.upload_sessions.get(upload_id)
+            _, received = _parallel_snapshot(session)
+        if completed:
+            return completed
+        if active is not session or received != session["total"]:
+            return None
+
+        part = Path(session["part"])
+        saved_target = core.unique_destination_path(target)
+        try:
+            if session["total"] == 0:
+                part.unlink(missing_ok=True)
+                saved_target.touch(exist_ok=False)
+            else:
+                os.replace(part, saved_target)
+        except OSError:
+            raise
+
+        record = {
+            "original_name": session["name"],
+            "name": saved_target.name,
+            "total": session["total"],
+            "verified": False,
+            "completed_at": time.time(),
+        }
+        with core.STATE.lock:
+            core.STATE.completed_uploads[upload_id] = record
+            if core.STATE.upload_sessions.get(upload_id) is session:
+                core.STATE.upload_sessions.pop(upload_id, None)
+        core.STATE.update_transfer(session["tid"], session["total"], "complete")
+        item = core.STATE.record_received(saved_target)
+        core.notify_file_received(item)
+        return record
+
+
+def _handle_parallel_put(core, handler, q, name, upload_id, offset, total, length,
+                         target, client_key, request_started):
+    try:
+        lane = core.parse_nonnegative_int(q.get("lane", ["0"])[0], "lane")
+        lanes = core.parse_nonnegative_int(q.get("lanes", ["0"])[0], "lanes")
+        lane_start, lane_end = _parallel_boundaries(total, lane, lanes)
+    except ValueError as e:
+        _drain(handler, length)
+        return handler.send_json({"error": str(e)}, 400)
+
+    if offset < lane_start or offset > lane_end or length > lane_end - offset:
+        _drain(handler, length)
+        return handler.send_json({"error": "Invalid parallel upload window"}, 400)
+
+    with core.STATE.lock:
+        completed = core.STATE.completed_uploads.get(upload_id)
+        if completed:
+            if completed["original_name"] != name or completed["total"] != total:
+                _drain(handler, length)
+                return handler.send_json({"error": "Upload ID already belongs to another file"}, 409)
+            return _replay_response(core, handler, completed, length)
+
+        session = core.STATE.upload_sessions.get(upload_id)
+        if session:
+            if (session["name"] != name or session["total"] != total or
+                    session.get("mode") != "parallel" or session.get("lanes") != lanes):
+                _drain(handler, length)
+                return handler.send_json({"error": "Upload ID already belongs to another transfer"}, 409)
+        else:
+            part = upload_part_path(core.STATE.receive_dir, upload_id)
+            try:
+                part.parent.mkdir(parents=True, exist_ok=True)
+                part.touch(exist_ok=True)
+            except OSError as e:
+                return _send_storage_error(handler, e, 0)
+            session = {
+                "name": name,
+                "total": total,
+                "part": str(part),
+                "tid": core.STATE.new_transfer("upload", name, total),
+                "updated": time.time(),
+                "client_key": client_key,
+                "cancel_event": threading.Event(),
+                "mode": "parallel",
+                "lanes": lanes,
+                "lane_done": [0] * lanes,
+                "finalize_lock": threading.Lock(),
+            }
+            core.STATE.upload_sessions[upload_id] = session
+
+    with _parallel_lane_lock(upload_id, lane):
+        with core.STATE.lock:
+            completed = core.STATE.completed_uploads.get(upload_id)
+            if completed:
+                return _replay_response(core, handler, completed, length)
+            if core.STATE.upload_sessions.get(upload_id) is not session:
+                _drain(handler, length)
+                return handler.send_json({"error": "Upload was cancelled"}, 409)
+            lane_done, received = _parallel_snapshot(session)
+
+        expected_offset = lane_start + lane_done[lane]
+        if offset != expected_offset:
+            _drain(handler, length)
+            return handler.send_json({
+                "received": received,
+                "lane_received": lane_done[lane],
+                "lane_offset": expected_offset,
+                "parts": lane_done,
+                "resume": True,
+            }, 409)
+
+        cancel_event = session["cancel_event"]
+        remain = length
+        absolute = offset
+        current_lane = lane_done[lane]
+        part = Path(session["part"])
+        try:
+            part.parent.mkdir(parents=True, exist_ok=True)
+            with open(part, "r+b", buffering=0) as f:
+                while remain:
+                    if cancel_event.is_set():
+                        raise _UploadCancelled()
+                    chunk = _read_upload_chunk(handler, remain, True)
+                    if cancel_event.is_set():
+                        raise _UploadCancelled()
+                    if not chunk:
+                        break
+                    if hasattr(os, "pwrite"):
+                        written = os.pwrite(f.fileno(), chunk, absolute)
+                    else:
+                        f.seek(absolute)
+                        written = f.write(chunk)
+                    if written != len(chunk):
+                        raise OSError("Short parallel upload write")
+                    absolute += written
+                    current_lane += written
+                    remain -= written
+                    with core.STATE.lock:
+                        if core.STATE.upload_sessions.get(upload_id) is not session:
+                            raise _UploadCancelled()
+                        session["lane_done"][lane] = current_lane
+                        session["updated"] = time.time()
+                        lane_done, received = _parallel_snapshot(session)
+                    core.STATE.update_transfer(session["tid"], received)
+
+            if cancel_event.is_set():
+                raise _UploadCancelled()
+            if remain:
+                return handler.send_json({
+                    "error": "Incomplete request body",
+                    "received": received,
+                    "lane_received": current_lane,
+                    "parts": lane_done,
+                }, 400)
+
+            record = _finish_parallel_upload(core, upload_id, session, target)
+            complete = record is not None
+            return handler.send_json({
+                "received": total if complete else received,
+                "lane_received": current_lane,
+                "parts": lane_done,
+                "complete": complete,
+                "name": record["name"] if record else name,
+                "verified": False,
+                "upload_id": upload_id,
+                "parallel_lanes": lanes,
+                "server_ms": round((time.perf_counter() - request_started) * 1000, 1),
+            })
+        except _UploadCancelled:
+            _cancel_parallel_session(core, upload_id, session)
+            try:
+                return handler.send_json({"cancelled": True, "received": 0, "upload_id": upload_id})
+            except OSError:
+                return None
+        except (BrokenPipeError, ConnectionResetError):
+            with core.STATE.lock:
+                if core.STATE.upload_sessions.get(upload_id) is session:
+                    session["updated"] = time.time()
+            return None
+        except OSError as e:
+            _cancel_parallel_session(core, upload_id, session)
+            return _send_storage_error(handler, e, 0)
+
+
 def _install_put(core):
     def do_PUT(self):
         request_started = time.perf_counter()
@@ -164,6 +382,11 @@ def _install_put(core):
         _clean_state(core)
         client_key = str(self.client_address[0]) if self.client_address else ""
         _supersede_prior_streams(core, upload_id, client_key, name)
+        if self.headers.get("X-DeckyShare-Parallel", "") == "1":
+            return _handle_parallel_put(
+                core, self, q, name, upload_id, offset, total, length,
+                target, client_key, request_started,
+            )
         with _upload_lock(upload_id):
             with core.STATE.lock:
                 completed = core.STATE.completed_uploads.get(upload_id)
@@ -387,6 +610,15 @@ def _install_get(core):
         if session:
             if session["name"] != name or session["total"] != total:
                 return self.send_json({"error": "Upload ID already belongs to another file"}, 409)
+            if session.get("mode") == "parallel":
+                parts, received = _parallel_snapshot(session)
+                return self.send_json({
+                    "received": min(received, total),
+                    "complete": False,
+                    "name": name,
+                    "parallel": True,
+                    "parts": parts,
+                })
             part = Path(session["part"])
             received = part.stat().st_size if part.exists() else 0
             return self.send_json({
@@ -433,6 +665,16 @@ def _install_post(core):
         if session:
             session["cancel_event"].set()
             core.STATE.update_transfer(session["tid"], status="cancelled")
+            if session.get("mode") == "parallel":
+                with core.STATE.lock:
+                    if core.STATE.upload_sessions.get(upload_id) is session:
+                        core.STATE.upload_sessions.pop(upload_id, None)
+                try:
+                    Path(session["part"]).unlink(missing_ok=True)
+                except OSError as e:
+                    status, code, message = _storage_error(e)
+                    return self.send_json({"error": message, "code": code}, status)
+                return self.send_json({"ok": True, "cancelled": name, "upload_id": upload_id})
             return self.send_json({"ok": True, "cancelled": name, "upload_id": upload_id, "cleanup_pending": True})
 
         try:
@@ -449,7 +691,8 @@ def _install_post(core):
 def _wrap_html_page(original):
     def html_page(address):
         page = original(address)
-        if "X-DeckyShare-Upload-ID" not in page or "upload_id:uploadId" not in page or "X-DeckyShare-Fast" not in page:
+        if ("X-DeckyShare-Upload-ID" not in page or "upload_id:uploadId" not in page or
+                "X-DeckyShare-Fast" not in page or "X-DeckyShare-Parallel" not in page):
             raise RuntimeError("DeckyShare fast upload UI is missing reliability markers")
         return page
     return html_page

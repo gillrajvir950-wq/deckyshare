@@ -28,7 +28,7 @@ def test_browser_cancel_aborts_active_upload_immediately():
     assert "new XMLHttpRequest()" in page
     assert "X-DeckyShare-Fast" in page
     assert "xhr.send(f.slice(off))" in page
-    assert "uploadControl.controller.abort()" in page
+    assert "abortActiveUploads()" in page
     assert "Cancelling now…" in page
     assert "Cancelling after current chunk" not in page
     assert "input.value=''" in page
@@ -50,11 +50,21 @@ def test_browser_uses_native_fast_stream_with_receiver_checkpoint():
     assert "prepareUploadChunk(f,off,chunk)" in page  # retained reliability helper
 
 
+def test_large_browser_uploads_use_three_parallel_native_lanes():
+    page = html_page("http://192.168.1.20:8787")
+
+    assert "uploadOneParallel(f,onProgress,onRetry)" in page
+    assert "X-DeckyShare-Parallel" in page
+    assert "lanes=3" in page
+    assert "f.size>=64*1024*1024" in page
+    assert "Turbo mode • 3 parallel native streams" in page
+
+
 def test_immediate_cancel_survives_exactly_once_upload_wrapper():
     page = _wrap_html_page(html_page)("http://192.168.1.20:8787")
 
     assert "new XMLHttpRequest()" in page
     assert "X-DeckyShare-Fast" in page
-    assert "uploadControl.controller.abort()" in page
+    assert "abortActiveUploads()" in page
     assert "X-DeckyShare-Upload-ID" in page
     assert "cancelPartial(f.name,uploadId)" in page

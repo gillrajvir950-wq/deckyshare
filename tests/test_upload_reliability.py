@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from transfer_integrity import remove_partial, resume_offset, rollback_partial
+from exactly_once import _parallel_boundaries
 
 
 def unique_destination_path(path):
@@ -49,6 +50,21 @@ class UploadReliabilityTests(unittest.TestCase):
         self.assertIn('old.get("client_key") != client_key', source)
         self.assertIn('old["cancel_event"].set()', source)
         self.assertIn("_supersede_prior_streams(core, upload_id, client_key, name)", source)
+
+    def test_parallel_ranges_cover_file_exactly_without_overlap(self):
+        total = 101
+        ranges = [_parallel_boundaries(total, lane, 3) for lane in range(3)]
+
+        self.assertEqual(ranges, [(0, 33), (33, 67), (67, 101)])
+        self.assertEqual(sum(end - start for start, end in ranges), total)
+
+    def test_parallel_upload_uses_direct_offset_writes(self):
+        source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
+
+        self.assertIn('self.headers.get("X-DeckyShare-Parallel", "") == "1"', source)
+        self.assertIn('written = os.pwrite(f.fileno(), chunk, absolute)', source)
+        self.assertIn('"lane_done": [0] * lanes', source)
+        self.assertIn('session.get("mode") == "parallel"', source)
 
     def test_active_cancel_is_signalled_without_waiting_for_upload_lock(self):
         source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
