@@ -31,6 +31,9 @@ def test_browser_cancel_aborts_active_upload_immediately():
     assert "uploadControl.controller.abort()" in page
     assert "Cancelling now…" in page
     assert "Cancelling after current chunk" not in page
+    assert "input.value=''" in page
+    assert "queueState=[];renderQueue()" in page
+    assert "diag.textContent=''" in page
 
 
 def test_browser_uses_native_fast_stream_with_receiver_checkpoint():

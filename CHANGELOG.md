@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.27
+
+- Stops an older upload stream when the same device retries the same file, preventing background requests from splitting Wi-Fi bandwidth with the new attempt.
+- Uses responsive socket reads for Fast Mode instead of waiting for a large receive buffer, improving steady mobile throughput and cancellation latency.
+- Skips redundant server-side CRC work for native Fast Mode streams while retaining CRC verification in Reliable Mode.
+- Fully resets the Send to Deck file picker, progress, diagnostic, and queue after cancellation.
+
 ## v1.1.0-rc.11.26
 
 - Removes interrupted or abandoned upload requests from Live Transfers immediately, eliminating duplicate ghost entries.

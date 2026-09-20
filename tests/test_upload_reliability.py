@@ -35,6 +35,21 @@ class UploadReliabilityTests(unittest.TestCase):
         self.assertIn('"base_done": initial_done', source)
         self.assertIn('t["done"] - t.get("base_done", 0)', source)
 
+    def test_fast_stream_does_not_wait_for_a_huge_buffer_or_rehash_bytes(self):
+        source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
+
+        self.assertIn('hasattr(handler.rfile, "read1")', source)
+        self.assertIn("chunk = _read_upload_chunk(self, remain, fast_mode)", source)
+        self.assertIn("if expected_crc:\n                            crc = core.crc32_update(crc, chunk)", source)
+
+    def test_new_retry_supersedes_old_stream_from_same_device(self):
+        source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
+
+        self.assertIn("def _supersede_prior_streams(core, upload_id, client_key, name):", source)
+        self.assertIn('old.get("client_key") != client_key', source)
+        self.assertIn('old["cancel_event"].set()', source)
+        self.assertIn("_supersede_prior_streams(core, upload_id, client_key, name)", source)
+
     def test_active_cancel_is_signalled_without_waiting_for_upload_lock(self):
         source = (Path(__file__).resolve().parents[1] / "exactly_once.py").read_text(encoding="utf-8")
         cancel_handler = source[source.index("def _install_post"):source.index("def _wrap_html_page")]

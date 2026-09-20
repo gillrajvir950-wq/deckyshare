@@ -33,6 +33,41 @@ def _retire_transfer(core, tid):
         core.STATE.transfers.pop(tid, None)
 
 
+def _supersede_prior_streams(core, upload_id, client_key, name):
+    """Stop an older browser stream when the same device retries the same file."""
+    stale_parts = []
+    with core.STATE.lock:
+        sessions = getattr(core.STATE, "upload_sessions", {})
+        for old_id, old in list(sessions.items()):
+            if old_id == upload_id:
+                continue
+            if old.get("client_key") != client_key or old.get("name") != name:
+                continue
+            old["cancel_event"].set()
+            tid = old.get("tid")
+            if tid in core.STATE.transfers:
+                core.STATE.update_transfer(tid, status="cancelled")
+            else:
+                sessions.pop(old_id, None)
+                stale_parts.append(old.get("part"))
+    for raw in stale_parts:
+        try:
+            if raw:
+                Path(raw).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _read_upload_chunk(handler, remain, fast_mode):
+    size = min(4 * 1024 * 1024 if fast_mode else 4 * 1024 * 1024, remain)
+    if fast_mode and hasattr(handler.rfile, "read1"):
+        # BufferedReader.read(n) waits for the whole large request. read1() takes
+        # currently available socket data, keeping mobile uploads and cancel
+        # signals responsive without reducing the TCP receive window.
+        return handler.rfile.read1(size)
+    return handler.rfile.read(size)
+
+
 def _drain(handler, length):
     remain = max(0, int(length or 0))
     while remain:
@@ -127,6 +162,8 @@ def _install_put(core):
             return self.send_json({"error": "Bad filename"}, 400)
 
         _clean_state(core)
+        client_key = str(self.client_address[0]) if self.client_address else ""
+        _supersede_prior_streams(core, upload_id, client_key, name)
         with _upload_lock(upload_id):
             with core.STATE.lock:
                 completed = core.STATE.completed_uploads.get(upload_id)
@@ -149,6 +186,7 @@ def _install_put(core):
                         "part": str(part),
                         "tid": core.STATE.new_transfer("upload", name, total),
                         "updated": time.time(),
+                        "client_key": client_key,
                         "cancel_event": threading.Event(),
                     }
                     core.STATE.upload_sessions[upload_id] = session
@@ -184,8 +222,7 @@ def _install_put(core):
                     while remain:
                         if cancel_event.is_set():
                             raise _UploadCancelled()
-                        read_size = 16 * 1024 * 1024 if fast_mode else 4 * 1024 * 1024
-                        chunk = self.rfile.read(min(read_size, remain))
+                        chunk = _read_upload_chunk(self, remain, fast_mode)
                         if cancel_event.is_set():
                             raise _UploadCancelled()
                         if not chunk:
@@ -202,7 +239,8 @@ def _install_put(core):
                                     active["updated"] = time.time()
                             _drain(self, remain - len(chunk))
                             return _send_storage_error(self, e, current)
-                        crc = core.crc32_update(crc, chunk)
+                        if expected_crc:
+                            crc = core.crc32_update(crc, chunk)
                         remain -= len(chunk)
                         current += len(chunk)
                         core.STATE.update_transfer(tid, current)
