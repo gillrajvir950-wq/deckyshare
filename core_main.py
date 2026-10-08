@@ -783,6 +783,182 @@ def extract_path(value=None, args=(), kwargs=None):
     return kwargs.get("path")
 
 
+# ---------------------------------------------------------------- Wi-Fi diagnostics
+_WIFI_TOOL_PATHS = "/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+def _system_env():
+    """Environment for system binaries: drop the frozen Decky runtime's library paths."""
+    env = {k: v for k, v in os.environ.items() if k not in ("LD_LIBRARY_PATH", "LD_PRELOAD", "PYTHONHOME", "PYTHONPATH")}
+    env["PATH"] = _WIFI_TOOL_PATHS + (":" + env["PATH"] if env.get("PATH") else "")
+    env["LC_ALL"] = "C"
+    return env
+
+
+def _run_tool(args, timeout=2.0):
+    try:
+        cp = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=_system_env())
+        return cp.stdout if cp.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _wifi_interfaces():
+    names = []
+    try:
+        for d in sorted(Path("/sys/class/net").iterdir()):
+            if (d / "wireless").exists() or (d / "phy80211").exists():
+                names.append(d.name)
+    except OSError:
+        pass
+    if not names:
+        for line in _run_tool(["iw", "dev"]).splitlines():
+            line = line.strip()
+            if line.startswith("Interface "):
+                names.append(line.split(None, 1)[1])
+    return names
+
+
+def _band_for(freq_mhz):
+    if not freq_mhz:
+        return None
+    if freq_mhz < 3000:
+        return "2.4 GHz"
+    if freq_mhz < 5925:
+        return "5 GHz"
+    return "6 GHz"
+
+
+def _parse_bitrate(text):
+    """'866.7 MBit/s VHT-MCS 9 80MHz short GI VHT-NSS 2' -> (866.7, 80, 'VHT')."""
+    import re
+    if not text:
+        return None, None, None
+    m = re.search(r"([0-9.]+)\s*MBit/s", text)
+    rate = float(m.group(1)) if m else None
+    w = re.search(r"(\d+)\s*MHz", text)
+    width = int(w.group(1)) if w else (20 if rate is not None else None)
+    gen = None
+    for key, label in (("EHT", "Wi-Fi 7"), ("HE", "Wi-Fi 6"), ("VHT", "Wi-Fi 5"), ("MCS", "Wi-Fi 4")):
+        if key + "-" in text or (key == "MCS" and " MCS " in f" {text} "):
+            gen = label
+            break
+    return rate, width, gen
+
+
+def parse_iw_link(text):
+    info = {}
+    if not text or "Not connected" in text:
+        return {"connected": False}
+    info["connected"] = True
+    for raw in text.splitlines():
+        line = raw.strip()
+        key, _, value = line.partition(":")
+        value = value.strip()
+        if key == "SSID":
+            info["ssid"] = value
+        elif key == "freq":
+            try:
+                info["freq_mhz"] = int(float(value.split()[0]))
+            except (ValueError, IndexError):
+                pass
+        elif key == "signal":
+            try:
+                info["signal_dbm"] = int(float(value.split()[0]))
+            except (ValueError, IndexError):
+                pass
+        elif key in ("tx bitrate", "rx bitrate"):
+            rate, width, gen = _parse_bitrate(value)
+            prefix = "tx" if key.startswith("tx") else "rx"
+            info[prefix + "_mbps"] = rate
+            if width:
+                info["width_mhz"] = max(width, info.get("width_mhz") or 0)
+            if gen and not info.get("standard"):
+                info["standard"] = gen
+    return info
+
+
+def parse_nmcli_wifi(text):
+    """nmcli -t -f ACTIVE,SSID,FREQ,RATE,SIGNAL dev wifi (':' separated, '\\:' escaped)."""
+    for line in (text or "").splitlines():
+        parts, cur, i = [], "", 0
+        while i < len(line):
+            if line[i] == "\\" and i + 1 < len(line):
+                cur += line[i + 1]; i += 2; continue
+            if line[i] == ":":
+                parts.append(cur); cur = ""; i += 1; continue
+            cur += line[i]; i += 1
+        parts.append(cur)
+        if len(parts) >= 5 and parts[0] == "yes":
+            info = {"connected": True, "ssid": parts[1]}
+            try:
+                info["freq_mhz"] = int(parts[2].split()[0])
+            except (ValueError, IndexError):
+                pass
+            try:
+                info["tx_mbps"] = float(parts[3].split()[0])
+            except (ValueError, IndexError):
+                pass
+            try:
+                info["signal_pct"] = int(parts[4])
+            except ValueError:
+                pass
+            return info
+    return {"connected": False}
+
+
+def wifi_hints(info):
+    hints = []
+    if not info.get("connected"):
+        return ["Deck Wi-Fi is not connected."]
+    if info.get("band") == "2.4 GHz":
+        hints.append("Connected on 2.4 GHz: expect only ~3-8 MB/s. Join the router's 5 GHz network.")
+    if info.get("power_save") is True:
+        hints.append("Wi-Fi power saving is ON. Turn off Settings > Developer > Enable Wi-Fi Power Management.")
+    sig = info.get("signal_dbm")
+    if sig is not None and sig < -70:
+        hints.append(f"Weak signal ({sig} dBm). Move closer to the router.")
+    rate = info.get("tx_mbps")
+    if rate is not None and rate < 200:
+        hints.append(f"Low Wi-Fi link rate ({rate:g} Mbit/s): real transfers will be about {rate / 8 / 2:.0f} MB/s or less.")
+    width = info.get("width_mhz")
+    if info.get("band") == "5 GHz" and width and width < 80:
+        hints.append(f"Router channel width is {width} MHz. 80 MHz on 5 GHz roughly doubles speed.")
+    if not hints:
+        hints.append("Deck Wi-Fi link looks healthy. If transfers are still slow, the router or the other device is the limit.")
+    return hints
+
+
+def wifi_diagnostics():
+    ifaces = _wifi_interfaces()
+    iface = ifaces[0] if ifaces else None
+    info = {"interface": iface, "source": None}
+    if iface:
+        link = _run_tool(["iw", "dev", iface, "link"])
+        if link:
+            info.update(parse_iw_link(link))
+            info["source"] = "iw"
+            ps = _run_tool(["iw", "dev", iface, "get", "power_save"]).lower()
+            if "power save:" in ps:
+                info["power_save"] = "on" in ps.split("power save:", 1)[1]
+    if not info.get("source"):
+        nm = _run_tool(["nmcli", "-t", "-f", "ACTIVE,SSID,FREQ,RATE,SIGNAL", "dev", "wifi"])
+        if nm:
+            info.update(parse_nmcli_wifi(nm))
+            info["source"] = "nmcli"
+    if not info.get("source"):
+        info["connected"] = None
+        info["error"] = "Wi-Fi details are unavailable on this system."
+        info["hints"] = []
+        return info
+    info["band"] = _band_for(info.get("freq_mhz"))
+    if info.get("freq_mhz"):
+        f = info["freq_mhz"]
+        info["channel"] = (f - 2407) // 5 if f < 2484 else (14 if f == 2484 else ((f - 5000) // 5 if f < 5925 else (f - 5950) // 5))
+    info["hints"] = wifi_hints(info)
+    return info
+
+
 class Plugin:
     async def bootstrap(self, *args, **kwargs):
         if STATE.server is None:
@@ -868,6 +1044,13 @@ class Plugin:
         with STATE.lock:
             STATE.received = [x for x in STATE.received if x.get("path") != str(p)]
         return {"ok": True, "received": STATE.received_snapshot()}
+
+    async def wifi_info(self, *args, **kwargs):
+        try:
+            return {"ok": True, "wifi": await asyncio.to_thread(wifi_diagnostics)}
+        except Exception as exc:
+            decky.logger.exception("DeckyShare Wi-Fi diagnostics failed")
+            return {"ok": False, "error": str(exc)}
 
     async def ping(self, *args, **kwargs):
         if STATE.server is None:

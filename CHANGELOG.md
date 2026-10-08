@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.31
+
+- Adds a **Wi-Fi Check** section to the Deck panel showing the Deck's Wi-Fi band and channel, link send/receive rate, channel width, Wi-Fi standard, signal strength and power-saving state.
+- Shows plain-language hints when the Deck link limits transfer speed (2.4 GHz, power saving on, weak signal, low link rate, narrow 5 GHz channel).
+- Reads details with `iw` (falling back to `nmcli`) using a clean system environment; nothing is changed on the Deck.
+
 ## v1.1.0-rc.11.30
 
 - Shows live transfer speed (last 3 seconds) instead of a since-start average, so a paused transfer reads 0 MB/s right away instead of slowly "decaying" (the 15 → 4 MB/s symptom). The average is still shown separately on the phone/PC page.

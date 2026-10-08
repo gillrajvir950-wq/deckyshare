@@ -156,6 +156,19 @@ function AccordionCard({icon,title,sub,open,onToggle,children,style={}}){
     open&&h("div",{style:{paddingTop:5}},children)
   );
 }
+function wifiRows(w){
+  if(!w)return [];
+  if(w.connected===false)return [["Status","Not connected"]];
+  const r=[];
+  if(w.ssid)r.push(["Network",w.ssid]);
+  if(w.band)r.push(["Band",w.band+(w.channel?` · ch ${w.channel}`:"")]);
+  if(w.tx_mbps!=null||w.rx_mbps!=null)r.push(["Link send / receive",`${w.tx_mbps!=null?Math.round(w.tx_mbps):"?"} / ${w.rx_mbps!=null?Math.round(w.rx_mbps):"?"} Mbit/s`]);
+  if(w.width_mhz)r.push(["Channel width",`${w.width_mhz} MHz`]);
+  if(w.standard)r.push(["Standard",w.standard]);
+  if(w.signal_dbm!=null)r.push(["Signal",`${w.signal_dbm} dBm`]);else if(w.signal_pct!=null)r.push(["Signal",`${w.signal_pct}%`]);
+  if(w.power_save!=null)r.push(["Power saving",w.power_save?"ON":"Off"]);
+  return r;
+}
 function MiniButton({children,onClick,tone="normal",compact=false}){
   const danger=tone==="danger";
   return h(DialogButton,{onClick,className:compact?"deckyshare-compact-action":"",style:{minHeight:compact?26:undefined,height:compact?26:undefined,padding:compact?"2px 6px":"7px 9px",borderRadius:compact?7:9,border:danger?"1px solid rgba(255,110,110,.34)":"1px solid rgba(120,180,255,.24)",background:danger?"rgba(255,70,70,.10)":"rgba(68,122,184,.13)",color:danger?"#ffd0d0":"#d9edff",fontSize:compact?9:11,lineHeight:1,fontWeight:700}},children);
@@ -191,11 +204,19 @@ function makePanel(){
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
     const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name"),[fmStorage,setFmStorage]=useState(null),[fmSelect,setFmSelect]=useState(false),[fmPicked,setFmPicked]=useState([]),[fmClip,setFmClip]=useState(null),[fmBusy,setFmBusy]=useState(false),[fmNew,setFmNew]=useState(""),[fmRename,setFmRename]=useState(null),[fmRenameValue,setFmRenameValue]=useState(""),[fmInfo,setFmInfo]=useState(null),[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50),[fmMenu,setFmMenu]=useState(false);
-    const [openSections,setOpenSections]=useState({browse:true,received:false,transfers:false,notifications:false,updates:false,support:false});
+    const [openSections,setOpenSections]=useState({browse:true,received:false,transfers:false,notifications:false,updates:false,support:false,wifi:false});
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
     const firstBrowseItemRef=useRef(null);
     const toggleSection=id=>setOpenSections(previous=>({...previous,[id]:!previous[id]}));
+    const [wifi,setWifi]=useState(null),[wifiBusy,setWifiBusy]=useState(false);
+    async function loadWifi(){
+      if(wifiBusy)return;
+      setWifiBusy(true);
+      try{const r=await call("wifi_info");setWifi(r&&r.ok?r.wifi:{error:(r&&r.error)||"Wi-Fi details unavailable"});}
+      catch(e){setWifi({error:String(e&&e.message||e)});}
+      finally{setWifiBusy(false);}
+    }
 
     async function call(method,args={}){
       if(!backendAPI)backendAPI=connectDeckyBackend();
@@ -385,7 +406,7 @@ function makePanel(){
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
       h("style",null,".deckyshare-root .deckyshare-compact-action{min-width:0!important;min-height:26px!important;height:26px!important;padding:2px 5px!important;display:flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;overflow:hidden!important}.deckyshare-root .deckyshare-compact-action>div{min-width:0!important;min-height:0!important;height:100%!important;width:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;text-overflow:ellipsis!important}.deckyshare-root .deckyshare-action:focus{animation:none!important}"),
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.30")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.31")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
 
       h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
         h(SectionTitle,{icon:"📡",title:"Connect phone / PC",sub:"Scan the QR code or open the local address"}),
@@ -464,6 +485,13 @@ function makePanel(){
         (!status.transfers||!status.transfers.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No active transfers"):status.transfers.map(t=>h("div",{key:t.id,style:{padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.05)"}},h("div",{style:{fontWeight:680,wordBreak:"break-word"}},`${t.direction==="upload"?"Phone/PC → Deck":"Deck → Phone/PC"}  •  ${t.name}`),h("div",{style:{fontSize:11,opacity:.62,marginTop:2}},`${Number(t.percent||0).toFixed(1)}% • ${fmt(t.speed)}/s${t.eta?` • ETA ${Math.ceil(t.eta)}s`:""}${t.stalled?` • ⚠ stalled ${Math.round(t.stalled_for||0)}s`:""}`),h(Bar,{value:t.percent})))
       ),
 
+      h(AccordionCard,{icon:"📶",title:"Wi-Fi Check",sub:"Deck band, link speed and signal",open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
+        !wifi?h("div",{style:{opacity:.6,fontSize:12,padding:"4px 0"}},wifiBusy?"Checking…":"Checking Deck Wi-Fi…"):
+        wifi.error?h("div",{style:{fontSize:12,color:"#ffb4a8",padding:"4px 0"}},wifi.error):
+        h("div",null,
+          wifiRows(wifi).map(([k,v])=>h("div",{key:k,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0"}},h("span",{style:{opacity:.62}},k),h("span",{style:{fontWeight:650,textAlign:"right",wordBreak:"break-word"}},v))),
+          (wifi.hints||[]).map((t,i)=>h("div",{key:"hint"+i,style:{fontSize:11,lineHeight:1.35,marginTop:6,padding:"6px 8px",borderRadius:8,background:"rgba(102,192,244,.10)",border:"1px solid rgba(102,192,244,.25)"}},t))),
+        h("div",{style:{marginTop:8}},h(MiniButton,{onClick:loadWifi,compact:true},wifiBusy?"Checking…":"Refresh"))),
       h(AccordionCard,{icon:"🔔",title:"Notifications",sub:"Received files and transfer results",open:openSections.notifications,onToggle:()=>toggleSection("notifications"),style:{border:"1px solid rgba(120,180,255,.18)"}},h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
       h(AccordionCard,{icon:"⬆️",title:"Updates",sub:"Verified GitHub releases",open:openSections.updates,onToggle:()=>toggleSection("updates"),style:{border:"1px solid rgba(96,211,152,.22)"}},
         h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:"Installed: v1.1.0-rc.1"),
