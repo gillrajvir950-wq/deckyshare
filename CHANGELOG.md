@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.32
+
+- Connect a Mac or PC without a QR code: the Deck panel now shows a short address (for example `192.168.8.131:8787`) and a 6-digit code. Opening the address in any browser asks for the code, and the right code connects that browser.
+- Codes expire after 10 minutes, work once, and are rate limited (6 wrong tries per device per minute; 30 wrong tries in total rotate the code).
+- Phones keep connecting by scanning the QR code. The truncated tokenised URL and the Deck-only "Copy address" button were removed from the Connect card.
+
 ## v1.1.0-rc.11.31
 
 - Adds a **Wi-Fi Check** section to the Deck panel showing the Deck's Wi-Fi band and channel, link send/receive rate, channel width, Wi-Fi standard, signal strength and power-saving state.

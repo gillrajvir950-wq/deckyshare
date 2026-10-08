@@ -22,7 +22,7 @@ from transfer_integrity import (
     parse_nonnegative_int,
     validate_upload_window,
 )
-from web_ui import html_page
+from web_ui import html_page, pair_page_html
 from share_sheet import (
     authorized as share_sheet_authorized,
     load_or_create_share_key,
@@ -171,6 +171,10 @@ class State:
         self.shortcut_pairing_code = None
         self.shortcut_pairing_expires = 0.0
         self.shortcut_pairing_attempts = {}
+        self.browser_pair_code = None
+        self.browser_pair_expires = 0.0
+        self.browser_pair_attempts = {}
+        self.browser_pair_failures = []
 
     def new_transfer(self, direction, name, total, initial_done=0):
         tid = secrets.token_hex(6)
@@ -357,6 +361,69 @@ def make_qr_svg(text):
         return None
 
 
+# ------------------------------------------------- PC / Mac browser pairing code
+# A computer can't scan the QR code and the tokenised URL is too long to type,
+# so the Deck panel shows a short address plus a 6-digit code. Opening the short
+# address without a token shows a code page; the right code sets the session
+# cookie. Codes expire, are single-use and are rate limited per client and in
+# total (too many wrong guesses rotate the code).
+BROWSER_PAIR_TTL_SECONDS = 10 * 60
+BROWSER_PAIR_WINDOW_SECONDS = 60
+BROWSER_PAIR_MAX_PER_CLIENT = 6
+BROWSER_PAIR_MAX_TOTAL = 30
+
+
+def browser_pair_info():
+    now = time.time()
+    with STATE.lock:
+        if not STATE.browser_pair_code or STATE.browser_pair_expires <= now:
+            STATE.browser_pair_code = f"{secrets.randbelow(1_000_000):06d}"
+            STATE.browser_pair_expires = now + BROWSER_PAIR_TTL_SECONDS
+            STATE.browser_pair_attempts = {}
+            STATE.browser_pair_failures = []
+        return {
+            "code": STATE.browser_pair_code,
+            "expires_in": max(0, int(STATE.browser_pair_expires - now)),
+        }
+
+
+def browser_pair_check(client, provided):
+    """Return (http_status, message). 200 means the code matched and was consumed."""
+    now = time.time()
+    digits = "".join(ch for ch in str(provided or "") if ch.isdigit())[:12]
+    with STATE.lock:
+        attempts = STATE.browser_pair_attempts
+        recent = [t for t in attempts.get(client, []) if now - t < BROWSER_PAIR_WINDOW_SECONDS]
+        if len(recent) >= BROWSER_PAIR_MAX_PER_CLIENT:
+            attempts[client] = recent
+            return 429, "Too many tries. Wait a minute and try again."
+        expected = STATE.browser_pair_code
+        if not expected or STATE.browser_pair_expires <= now:
+            STATE.browser_pair_code = None
+            return 410, "No active code. Open DeckyShare on your Steam Deck to see the code."
+        try:
+            ok = len(digits) == 6 and secrets.compare_digest(digits, expected)
+        except Exception:
+            ok = False
+        if ok:
+            STATE.browser_pair_code = None  # single use; the panel shows a fresh one
+            STATE.browser_pair_attempts = {}
+            STATE.browser_pair_failures = []
+            return 200, "Connected"
+        recent.append(now)
+        attempts[client] = recent
+        failures = [t for t in STATE.browser_pair_failures if now - t < BROWSER_PAIR_WINDOW_SECONDS] + [now]
+        STATE.browser_pair_failures = failures
+        if len(failures) >= BROWSER_PAIR_MAX_TOTAL:
+            STATE.browser_pair_code = None
+            return 403, "Too many wrong codes. A new code is now shown on your Deck."
+        return 403, "Wrong code. Check the 6 digits on your Steam Deck."
+
+
+def short_address():
+    return f"{local_ip()}:{STATE.port}"
+
+
 class Handler(BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
@@ -449,6 +516,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if u.path == "/" and not self.token_ok():
+            data = pair_page_html().encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
             return
@@ -567,6 +642,30 @@ class Handler(BaseHTTPRequestHandler):
             STATE.update_transfer(tid, status="failed")
             raise
 
+    def handle_browser_pair(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            length = -1
+        if length < 0 or length > 1024:
+            return self.send_json({"error": "Bad request"}, 400)
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+            code = str(data.get("code", "")) if isinstance(data, dict) else ""
+        except (ValueError, UnicodeDecodeError):
+            code = ""
+        client = self.client_address[0] if self.client_address else "unknown"
+        status, message = browser_pair_check(client, code)
+        if status != 200:
+            return self.send_json({"ok": False, "error": message}, status)
+        body = json.dumps({"ok": True, "redirect": "/"}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Set-Cookie", f"deckyshare_token={STATE.token}; Path=/; HttpOnly; SameSite=Strict")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         u = urllib.parse.urlsplit(self.path)
         q = urllib.parse.parse_qs(u.query)
@@ -590,6 +689,8 @@ class Handler(BaseHTTPRequestHandler):
                 notify_file_received,
             )
             return self.send_json(result, status)
+        if u.path == "/pair":
+            return self.handle_browser_pair()
         if not self.token_ok():
             self.send_error(403)
             return
@@ -972,6 +1073,8 @@ class Plugin:
             "address": preferred["url"],
             "qr_data": preferred.get("qr_data"),
             "addresses": options,
+            "short_address": short_address(),
+            "pc_code": browser_pair_info(),
             "server_self_test": server_self_test(STATE.port),
             "listen": f"0.0.0.0:{STATE.port}",
             "selected": selected_info(),
@@ -990,6 +1093,8 @@ class Plugin:
             "ok": True,
             "address": preferred["url"],
             "addresses": options,
+            "short_address": short_address(),
+            "pc_code": browser_pair_info(),
             "server_self_test": server_self_test(STATE.port),
             "listen": f"0.0.0.0:{STATE.port}",
             "selected": selected_info(),

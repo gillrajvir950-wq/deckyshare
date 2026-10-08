@@ -85,3 +85,62 @@ document.getElementById('cancel').onclick=()=>{{if(!uploadControl.running)return
 document.getElementById('upload').onclick=async()=>{{const input=document.getElementById('file'),files=Array.from(input.files||[]),u=document.getElementById('uptext'),b=document.getElementById('upbar'),btn=document.getElementById('upload'),pause=document.getElementById('pause'),cancel=document.getElementById('cancel'),maxspeed=document.getElementById('maxspeed');if(!files.length||uploadControl.running)return;const noResume=!!maxspeed.checked,total=files.reduce((n,f)=>n+f.size,0);let finished=0,current=-1;queueState=files.map(f=>({{name:f.name,status:'Waiting'}}));renderQueue();uploadControl={{running:true,paused:false,cancelled:false,controller:null,controllers:[],noResume}};await requestTransferWakeLock();btn.disabled=true;maxspeed.disabled=true;pause.disabled=noResume;cancel.disabled=false;try{{for(let i=0;i<files.length;i++){{current=i;if(uploadControl.cancelled)throw cancelledError();const f=files[i],label=()=>`${{i+1}}/${{files.length}} • ${{f.name}}`;setQueueStatus(i,noResume?'Uploading • Maximum Speed':(f.size>=64*1024*1024?'Uploading • Turbo mode':'Uploading • Fast mode'));await uploadOne(f,done=>{{const overall=total?((finished+done)*100/total):100;u.textContent=label()+' • '+overall.toFixed(1)+'% overall';b.style.width=Math.min(100,overall)+'%';}},s=>{{u.textContent=label()+' • '+s;}},noResume);finished+=f.size;setQueueStatus(i,'Done');}}u.textContent=`Completed ${{files.length}} file${{files.length===1?'':'s'}}`;b.style.width='100%';setTimeout(()=>{{u.textContent='';b.style.width='0%';input.value='';queueState=[];renderQueue();}},1800);}}catch(e){{if(e.cancelled){{u.textContent='Transfer cancelled';b.style.width='0%';input.value='';queueState=[];renderQueue();const diag=document.getElementById('diag');if(diag)diag.textContent='';setTimeout(()=>{{if(!uploadControl.running)u.textContent='';}},1200);}}else{{if(current>=0)setQueueStatus(current,'Failed');u.textContent='Upload failed: '+e.message;}}}}finally{{uploadControl.controller=null;uploadControl.controllers=[];uploadControl.running=false;uploadControl.paused=false;uploadControl.noResume=false;await releaseTransferWakeLock();btn.disabled=false;maxspeed.disabled=false;pause.disabled=true;cancel.disabled=true;pause.textContent='Pause';}}}};
 refresh();setInterval(refresh,700);
 </script></body></html>'''
+
+
+_PAIR_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect to DeckyShare</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;
+background:#0b1118;color:#e8eef5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+.card{width:100%;max-width:400px;background:#131c27;border:1px solid #22303f;border-radius:20px;padding:28px 24px;
+display:flex;flex-direction:column;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:800}
+.logo{width:36px;height:36px;border-radius:11px;background:#1a9fff;display:flex;align-items:center;justify-content:center}
+h1{margin:0;font-size:22px}
+p{margin:0;color:#9aabbd;font-size:15px;line-height:1.45}
+label{font-size:13px;font-weight:700;color:#c9d6e3}
+input{width:100%;min-height:64px;border-radius:14px;border:2px solid #2c4057;background:#0f1720;color:#fff;
+font-size:34px;font-weight:800;letter-spacing:10px;text-align:center;font-family:ui-monospace,Menlo,Consolas,monospace}
+input:focus{outline:none;border-color:#1a9fff}
+button{min-height:52px;border:0;border-radius:14px;background:#1a9fff;color:#06121f;font-size:17px;font-weight:800;cursor:pointer}
+button:disabled{opacity:.6;cursor:default}
+.err{min-height:20px;color:#ff9a9a;font-size:14px;font-weight:600}
+.hint{font-size:13px;color:#6f8399}
+</style></head>
+<body><main class="card">
+<div class="brand"><div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06121f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg></div>DeckyShare</div>
+<h1>Enter the code from your Steam Deck</h1>
+<p>Open DeckyShare on the Deck. The 6-digit code is shown in the <b>Connect</b> card, under <b>Computer</b>.</p>
+<form id="f" style="display:flex;flex-direction:column;gap:10px">
+<label for="code">Code</label>
+<input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="000000" autofocus required>
+<div id="err" class="err" role="alert"></div>
+<button id="go" type="submit">Connect</button>
+</form>
+<div class="hint">Phones can scan the QR code on the Deck instead.</div>
+</main>
+<script>
+const f=document.getElementById('f'),input=document.getElementById('code'),err=document.getElementById('err'),go=document.getElementById('go');
+input.addEventListener('input',()=>{input.value=input.value.replace(/[^0-9]/g,'').slice(0,6);err.textContent='';});
+f.addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(input.value.length!==6){err.textContent='Enter all 6 digits.';return;}
+  go.disabled=true;go.textContent='Connecting…';
+  try{
+    const r=await fetch('/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:input.value}),credentials:'same-origin'});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok&&j.ok){location.replace(j.redirect||'/');return;}
+    err.textContent=j.error||('Could not connect ('+r.status+')');
+  }catch(x){err.textContent='Could not reach the Deck. Are both on the same Wi-Fi?';}
+  go.disabled=false;go.textContent='Connect';input.select();
+});
+</script>
+</body></html>
+"""
+
+
+def pair_page_html():
+    return _PAIR_PAGE

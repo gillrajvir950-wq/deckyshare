@@ -169,6 +169,19 @@ function wifiRows(w){
   if(w.power_save!=null)r.push(["Power saving",w.power_save?"ON":"Off"]);
   return r;
 }
+function pcConnect(displayUrl,status){
+  const addr=String(displayUrl||"").replace(/^https?:\/\//,"").replace(/[\/?#].*$/,"");
+  const raw=status&&status.pc_code&&status.pc_code.code?String(status.pc_code.code):"";
+  const code=raw.length===6?raw.slice(0,3)+" "+raw.slice(3):"··· ···";
+  const label={fontSize:10,opacity:.62,fontWeight:700};
+  return h("div",{style:{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:3}},
+    h("div",{style:{...label,textTransform:"uppercase",letterSpacing:.6,opacity:.8,marginBottom:2}},"Computer"),
+    h("div",{style:label},"1. Open in any browser"),
+    h("div",{style:{fontSize:14,fontWeight:800,color:"#79cbff",fontFamily:"monospace",wordBreak:"break-all",lineHeight:1.2}},addr||"…"),
+    h("div",{style:{...label,marginTop:5}},"2. Enter this code"),
+    h("div",{style:{fontSize:22,fontWeight:850,letterSpacing:2,fontFamily:"monospace",lineHeight:1.1}},code)
+  );
+}
 function MiniButton({children,onClick,tone="normal",compact=false}){
   const danger=tone==="danger";
   return h(DialogButton,{onClick,className:compact?"deckyshare-compact-action":"",style:{minHeight:compact?26:undefined,height:compact?26:undefined,padding:compact?"2px 6px":"7px 9px",borderRadius:compact?7:9,border:danger?"1px solid rgba(255,110,110,.34)":"1px solid rgba(120,180,255,.24)",background:danger?"rgba(255,70,70,.10)":"rgba(68,122,184,.13)",color:danger?"#ffd0d0":"#d9edff",fontSize:compact?9:11,lineHeight:1,fontWeight:700}},children);
@@ -406,17 +419,14 @@ function makePanel(){
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
       h("style",null,".deckyshare-root .deckyshare-compact-action{min-width:0!important;min-height:26px!important;height:26px!important;padding:2px 5px!important;display:flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;overflow:hidden!important}.deckyshare-root .deckyshare-compact-action>div{min-width:0!important;min-height:0!important;height:100%!important;width:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;text-overflow:ellipsis!important}.deckyshare-root .deckyshare-action:focus{animation:none!important}"),
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.31")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.32")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
 
       h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
-        h(SectionTitle,{icon:"📡",title:"Connect phone / PC",sub:"Scan the QR code or open the local address"}),
+        h(SectionTitle,{icon:"📡",title:"Connect",sub:"Phone: scan the QR · Computer: address + code"}),
         h("div",{style:{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:999,background:status.server_self_test?"rgba(56,232,121,.10)":"rgba(255,112,112,.10)",color:status.server_self_test?"#8ef6aa":"#ffb3b3",fontSize:11,fontWeight:700,marginBottom:10}},status.server_self_test?"● Ready to connect":"● Server unavailable"),
         h("div",{style:{display:"flex",gap:10,alignItems:"stretch"}},
-          h("div",{style:{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:7}},
-            h("div",{style:{padding:"10px 9px",borderRadius:10,background:"rgba(43,112,196,.20)",border:"1px solid rgba(79,164,255,.26)",fontSize:10,fontWeight:750,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:"#79cbff"}},displayUrl),
-            h(MiniButton,{onClick:copyAddress},copied?"✓ Address copied":"Copy address")
-          ),
-          displayQr&&h("div",{style:{width:91,textAlign:"center"}},h("img",{src:displayQr,style:{width:80,height:80,background:"white",padding:4,borderRadius:9}}),h("div",{style:{fontSize:9,opacity:.55,marginTop:2}},"Scan QR"))
+          pcConnect(displayUrl,status),
+          displayQr&&h("div",{style:{width:91,textAlign:"center"}},h("img",{src:displayQr,style:{width:80,height:80,background:"white",padding:4,borderRadius:9}}),h("div",{style:{fontSize:9,opacity:.55,marginTop:2}},"Phone: scan"))
         ),
         conns.length>1&&h("div",{style:{marginTop:9}},h("div",{style:{fontSize:10,opacity:.52,marginBottom:4}},"Network"),conns.map((c,i)=>h(DialogButton,{key:c.ip,onClick:()=>{setConnIndex(i);setCopied(false);},style:{padding:"5px 7px",margin:"2px 3px 2px 0",borderRadius:7,border:i===connIndex?"1px solid #66c0f4":"1px solid rgba(255,255,255,.10)",background:i===connIndex?"rgba(102,192,244,.16)":"transparent",color:"white",fontSize:10}},c.interface)))
       ),
