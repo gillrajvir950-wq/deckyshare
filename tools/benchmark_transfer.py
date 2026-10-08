@@ -115,11 +115,20 @@ def download(base, expected_size):
 
 def main():
     ap = argparse.ArgumentParser(description="DeckyShare real-device upload/download benchmark")
-    ap.add_argument("base_url", help="DeckyShare URL, e.g. http://192.168.1.50:8787")
+    ap.add_argument("base_url", help="DeckyShare URL from the Deck panel/QR, e.g. http://192.168.1.50:8787/?token=...")
+    ap.add_argument("--token", help="DeckyShare session token (taken from ?token= in base_url if omitted)")
     ap.add_argument("--size-gb", type=float, default=1.0, help="Test file size in GiB (default: 1)")
     ap.add_argument("--file", help="Use an existing file instead of generating one")
     ap.add_argument("--keep", action="store_true", help="Keep generated local test file")
     args = ap.parse_args()
+    parts = urllib.parse.urlsplit(args.base_url)
+    token = args.token or (urllib.parse.parse_qs(parts.query).get("token") or [""])[0]
+    if not token:
+        ap.error("DeckyShare RC11 needs the session token: paste the full URL with ?token=... or pass --token")
+    args.base_url = f"{parts.scheme}://{parts.netloc}"
+    opener = urllib.request.build_opener()
+    opener.addheaders = [("X-DeckyShare-Token", token)]
+    urllib.request.install_opener(opener)
 
     generated = False
     temp_path = None

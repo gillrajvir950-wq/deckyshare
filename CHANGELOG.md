@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.30
+
+- Shows live transfer speed (last 3 seconds) instead of a since-start average, so a paused transfer reads 0 MB/s right away instead of slowly "decaying" (the 15 → 4 MB/s symptom). The average is still shown separately on the phone/PC page.
+- Flags transfers that have received no data for 2+ seconds as "stalled" on both the Deck panel and the phone/PC page, with how long they have been stalled.
+- Keeps a moving transfer alive through pauses of up to 5 minutes (was 30 seconds). Previously a short phone pause killed Maximum Speed uploads, which then restarted from zero. Idle keep-alive connections still close after 30 seconds.
+- `tools/benchmark_transfer.py` now sends the session token (paste the full `?token=` URL or pass `--token`), so it works against RC11 builds.
+
 ## v1.1.0-rc.11.29
 
 - Adds an optional, default-on Maximum Speed mode for browser-to-Deck transfers using one uninterrupted raw stream with no resume checkpoints, range lanes, or CRC work.

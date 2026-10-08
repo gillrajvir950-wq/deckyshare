@@ -3,6 +3,7 @@ import json
 import os
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 
 from transfer_integrity import safe_upload_id, upload_part_path
@@ -813,6 +814,40 @@ def _wrap_html_page(original):
     return html_page
 
 
+# Idle keep-alive connections still close after the server's short timeout, but
+# while a file body is actually moving, a phone may pause for longer (app switch,
+# screen dim, Wi-Fi roam). Maximum Speed mode cannot resume, so a 30 s pause used
+# to throw away the whole transfer.
+TRANSFER_IDLE_TIMEOUT_SECONDS = 300
+IDLE_KEEP_ALIVE_TIMEOUT_SECONDS = 30
+
+
+def _with_transfer_timeout(fn, applies=None):
+    def wrapper(self):
+        if applies is not None and not applies(self):
+            return fn(self)
+        try:
+            self.connection.settimeout(TRANSFER_IDLE_TIMEOUT_SECONDS)
+        except (AttributeError, OSError):
+            pass
+        try:
+            return fn(self)
+        finally:
+            try:
+                self.connection.settimeout(IDLE_KEEP_ALIVE_TIMEOUT_SECONDS)
+            except (AttributeError, OSError):
+                pass
+    wrapper.__name__ = getattr(fn, "__name__", "wrapper")
+    return wrapper
+
+
+def _is_download(handler):
+    try:
+        return urllib.parse.urlsplit(handler.path).path == "/download"
+    except Exception:
+        return False
+
+
 def install(core):
     if getattr(core.STATE, "_exactly_once_installed", False):
         return
@@ -824,3 +859,5 @@ def install(core):
     _install_get(core)
     _install_post(core)
     core.html_page = _wrap_html_page(core.html_page)
+    core.Handler.do_PUT = _with_transfer_timeout(core.Handler.do_PUT)
+    core.Handler.do_GET = _with_transfer_timeout(core.Handler.do_GET, _is_download)

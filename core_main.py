@@ -181,20 +181,29 @@ class State:
                 "id": tid, "direction": direction, "name": name,
                 "total": int(total or 0), "done": initial_done,
                 "base_done": initial_done, "started": now,
-                "updated": now, "status": "active"
+                "updated": now, "status": "active",
+                "_samples": [(now, initial_done)],
             }
         return tid
 
     def update_transfer(self, tid, done=None, status=None):
+        now = time.time()
         with self.lock:
             t = self.transfers.get(tid)
             if not t:
                 return
             if done is not None:
                 t["done"] = int(done)
+                if t["done"] != t["_samples"][-1][1]:
+                    t["last_progress"] = now
+                samples = t["_samples"]
+                samples.append((now, t["done"]))
+                # Keep a short window plus one older sample as the baseline.
+                while len(samples) > 2 and now - samples[1][0] > SPEED_WINDOW_SECONDS:
+                    samples.pop(0)
             if status:
                 t["status"] = status
-            t["updated"] = time.time()
+            t["updated"] = now
 
     def record_received(self, path):
         try:
@@ -244,17 +253,35 @@ class State:
             out = []
             for t in self.transfers.values():
                 elapsed = max(0.001, now - t["started"])
-                speed = max(0, t["done"] - t.get("base_done", 0)) / elapsed
+                avg_speed = max(0, t["done"] - t.get("base_done", 0)) / elapsed
+                # Live speed over the last few seconds, measured up to *now*, so
+                # a paused transfer drops to 0 instead of slowly decaying like a
+                # since-start average does (the old "15 -> 4 MB/s" symptom).
+                base_t, base_done = t["_samples"][0]
+                for st, sd in t["_samples"]:
+                    if now - st <= SPEED_WINDOW_SECONDS:
+                        break
+                    base_t, base_done = st, sd
+                speed = max(0.0, (t["done"] - base_done) / max(0.25, now - base_t))
+                last_progress = t.get("last_progress", t["started"])
+                stalled = t["status"] == "active" and now - last_progress > STALL_AFTER_SECONDS
+                if stalled:
+                    speed = 0.0
                 remain = max(0, t["total"] - t["done"])
                 eta = (remain / speed) if speed > 1 else None
-                x = dict(t)
+                x = {k: v for k, v in t.items() if not k.startswith("_")}
                 x["speed"] = speed
+                x["avg_speed"] = avg_speed
+                x["stalled"] = stalled
+                x["stalled_for"] = round(now - last_progress, 1) if stalled else 0
                 x["eta"] = eta
                 x["percent"] = (t["done"] * 100 / t["total"]) if t["total"] else 0
                 out.append(x)
             return out
 
 
+SPEED_WINDOW_SECONDS = 3.0
+STALL_AFTER_SECONDS = 2.0
 STATE = State()
 _START_SERVER_LOCK = threading.Lock()
 
