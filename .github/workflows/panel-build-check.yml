@@ -8,7 +8,7 @@ name: Panel build check
 on:
   push:
     branches:
-      - "v1.1.0-rc*-release"
+      - "v*-release"
     paths:
       - "src/**"
       - "dist/**"
