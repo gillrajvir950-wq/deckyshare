@@ -1,0 +1,70 @@
+name: Panel build check
+
+# Builds the Deck panel (dist/index.js) from src/index.tsx and reports whether
+# the result matches the committed dist. The comparison is published as a run
+# annotation so it can be read without downloading logs. Nothing is committed.
+
+on:
+  push:
+    branches:
+      - "v1.1.0-rc*-release"
+    paths:
+      - "src/**"
+      - "dist/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "rollup.config.js"
+      - "tsconfig.json"
+      - ".github/workflows/panel-build-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build from src
+        run: |
+          cp dist/index.js /tmp/committed-index.js
+          pnpm build
+          node --check dist/index.js
+
+      - name: Compare with committed dist
+        run: |
+          python3 - <<'PY'
+          import difflib, hashlib
+
+          def load(path):
+              lines = open(path, encoding="utf-8").read().splitlines()
+              return [l for l in lines if not l.startswith("//# sourceMappingURL")]
+
+          committed = load("/tmp/committed-index.js")
+          built = load("dist/index.js")
+
+          def esc(text):
+              return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          if committed == built:
+              print("::notice title=panel-build::IDENTICAL (%d lines)" % len(built))
+          else:
+              diff = list(difflib.unified_diff(committed, built, "committed", "built", n=1, lineterm=""))
+              changed = sum(1 for l in diff if l[:1] in "+-" and not l.startswith(("+++", "---")))
+              head = "\n".join(l[:300] for l in diff[:120])
+              print("::warning title=panel-build::DIFFERENT committed=%d built=%d changed_lines=%d" % (len(committed), len(built), changed))
+              print("::warning title=panel-build-diff::" + esc(head))
+          PY
