@@ -2,17 +2,17 @@ from web_ui import html_page
 from exactly_once import _wrap_html_page
 
 
-def test_web_page_has_separate_mobile_and_desktop_layouts():
+def test_web_page_is_single_column_and_phone_safe():
     page = html_page("http://192.168.1.20:8787")
 
     assert 'name="viewport"' in page
-    assert "@media(max-width:700px)" in page
-    assert "@media(min-width:701px)" in page
-    assert ".grid{grid-template-columns:1fr" in page
-    assert "grid-template-columns:minmax(0,1fr) minmax(0,1fr)" in page
+    assert "viewport-fit=cover" in page
     assert "env(safe-area-inset-bottom)" in page
-    assert ".controls #upload{grid-column:1/-1}" in page
-    assert ".download-row" in page
+    assert ".wrap{max-width:520px" in page
+    assert 'role="tablist"' in page
+    assert 'id="panel-send"' in page and 'id="panel-get"' in page
+    assert 'id="xfer"' in page  # transfer card sits above the tabs
+    assert page.index('id="xfer"') < page.index('role="tablist"')
 
 
 def test_web_page_escapes_displayed_address():
@@ -64,7 +64,8 @@ def test_maximum_speed_mode_is_a_single_non_resumable_stream():
     page = html_page("http://192.168.1.20:8787")
 
     assert 'id="maxspeed" type="checkbox" checked' in page
-    assert "Maximum Speed (No Resume)" in page
+    assert "<b>Maximum Speed</b>" in page
+    assert "No resume: if Wi-Fi drops, the file starts again." in page
     assert "uploadOneMaximum(f,onProgress)" in page
     assert "X-DeckyShare-No-Resume" in page
     assert "xhr.send(f)" in page

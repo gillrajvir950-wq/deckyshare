@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0-rc.11.33
+
+- Redesigned phone/PC page: "Send to Deck" and "Get from Deck" tabs instead of one long scroll; a large file picker with a list of chosen files (remove any, drag and drop on a computer); a Maximum Speed switch; and a transfer card at the top with big progress, live speed, time left and a "no data" warning when the transfer stalls. Pause/Cancel only appear while sending, and the picker hides during a transfer.
+- Get from Deck shows the file shared on the Deck with a badge on the tab, plus live progress for downloads.
+- Fixed: re-sending a file you had deleted on the Deck saved it as "name (1).ext" until Decky restarted. Filename reservations now only cover the moment a file is being saved.
+- The upload engine (Maximum Speed, Turbo, Fast, Reliable, pause, resume, cancel) is unchanged.
+
 ## v1.1.0-rc.11.32
 
 - Connect a Mac or PC without a QR code: the Deck panel now shows a short address (for example `192.168.8.131:8787`) and a 6-digit code. Opening the address in any browser asks for the code, and the right code connects that browser.

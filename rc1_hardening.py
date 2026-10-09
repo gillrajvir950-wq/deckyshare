@@ -1,18 +1,35 @@
 import threading
+import time
 from pathlib import Path
 
 
 _reservation_lock = threading.Lock()
-_reserved_destinations = set()
+# path -> monotonic time it was handed out. A reservation only has to cover the
+# moment between choosing a name and the file landing on disk (os.replace right
+# after); after that the file's own existence protects the name. Reservations
+# used to be kept forever, so re-sending a file the user had deleted produced
+# "name (1).ext" until Decky restarted.
+_RESERVATION_SECONDS = 5.0
+_reserved_destinations = {}
+
+
+def _prune_reservations(now):
+    for key, at in list(_reserved_destinations.items()):
+        # Landed on disk: the file itself now guards the name. Stale: the
+        # finalizer that took it failed or was cancelled.
+        if now - at > _RESERVATION_SECONDS or Path(key).exists():
+            del _reserved_destinations[key]
 
 
 def reserve_unique_destination(original_unique, path):
     """Reserve a unique final filename across concurrent upload finalizers."""
     base = Path(path)
     with _reservation_lock:
+        now = time.monotonic()
+        _prune_reservations(now)
         candidate = Path(original_unique(base))
         if str(candidate) not in _reserved_destinations:
-            _reserved_destinations.add(str(candidate))
+            _reserved_destinations[str(candidate)] = now
             return candidate
 
         stem = base.stem
@@ -22,7 +39,7 @@ def reserve_unique_destination(original_unique, path):
             candidate = base.with_name(f"{stem} ({counter}){suffix}")
             key = str(candidate)
             if not candidate.exists() and key not in _reserved_destinations:
-                _reserved_destinations.add(key)
+                _reserved_destinations[key] = now
                 return candidate
             counter += 1
 
