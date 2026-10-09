@@ -203,31 +203,36 @@ function SectionTitle({ icon, title, sub }) { return h("div", { style: { display
 function AccordionCard({ icon, title, sub, open, onToggle, children, style = {} }) {
     return h(Card, { style }, h(DialogButton, { onClick: onToggle, "aria-expanded": !!open, style: { width: "100%", minHeight: 0, padding: "2px 1px 7px", margin: 0, border: 0, background: "transparent", color: "white", textAlign: "left" } }, h("div", { style: { display: "grid", gridTemplateColumns: "28px minmax(0,1fr) 22px", gap: 7, alignItems: "center" } }, h("div", { style: { fontSize: 20, textAlign: "center" } }, icon), h("div", { style: { minWidth: 0 } }, h("div", { style: { fontWeight: 760, fontSize: 14 } }, title), sub && h("div", { style: { fontSize: 10, opacity: .58, marginTop: 1, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, sub)), h("div", { style: { fontSize: 16, fontWeight: 800, textAlign: "center", color: "#9fdcff" } }, open ? "▼" : "▶"))), open && h("div", { style: { paddingTop: 5 } }, children));
 }
-function wifiRows(w){
-  if(!w)return [];
-  if(w.connected===false)return [["Status","Not connected"]];
-  const r=[];
-  if(w.ssid)r.push(["Network",w.ssid]);
-  if(w.band)r.push(["Band",w.band+(w.channel?` · ch ${w.channel}`:"")]);
-  if(w.tx_mbps!=null||w.rx_mbps!=null)r.push(["Link send / receive",`${w.tx_mbps!=null?Math.round(w.tx_mbps):"?"} / ${w.rx_mbps!=null?Math.round(w.rx_mbps):"?"} Mbit/s`]);
-  if(w.width_mhz)r.push(["Channel width",`${w.width_mhz} MHz`]);
-  if(w.standard)r.push(["Standard",w.standard]);
-  if(w.signal_dbm!=null)r.push(["Signal",`${w.signal_dbm} dBm`]);else if(w.signal_pct!=null)r.push(["Signal",`${w.signal_pct}%`]);
-  if(w.power_save!=null)r.push(["Power saving",w.power_save?"ON":"Off"]);
-  return r;
+function wifiRows(w) {
+    if (!w)
+        return [];
+    if (w.connected === false)
+        return [["Status", "Not connected"]];
+    const r = [];
+    if (w.ssid)
+        r.push(["Network", w.ssid]);
+    if (w.band)
+        r.push(["Band", w.band + (w.channel ? ` · ch ${w.channel}` : "")]);
+    if (w.tx_mbps != null || w.rx_mbps != null)
+        r.push(["Link send / receive", `${w.tx_mbps != null ? Math.round(w.tx_mbps) : "?"} / ${w.rx_mbps != null ? Math.round(w.rx_mbps) : "?"} Mbit/s`]);
+    if (w.width_mhz)
+        r.push(["Channel width", `${w.width_mhz} MHz`]);
+    if (w.standard)
+        r.push(["Standard", w.standard]);
+    if (w.signal_dbm != null)
+        r.push(["Signal", `${w.signal_dbm} dBm`]);
+    else if (w.signal_pct != null)
+        r.push(["Signal", `${w.signal_pct}%`]);
+    if (w.power_save != null)
+        r.push(["Power saving", w.power_save ? "ON" : "Off"]);
+    return r;
 }
-function pcConnect(displayUrl,status){
-  const addr=String(displayUrl||"").replace(/^https?:\/\//,"").replace(/[\/?#].*$/,"");
-  const raw=status&&status.pc_code&&status.pc_code.code?String(status.pc_code.code):"";
-  const code=raw.length===6?raw.slice(0,3)+" "+raw.slice(3):"··· ···";
-  const label={fontSize:10,opacity:.62,fontWeight:700};
-  return h("div",{style:{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:3}},
-    h("div",{style:{...label,textTransform:"uppercase",letterSpacing:.6,opacity:.8,marginBottom:2}},"Computer"),
-    h("div",{style:label},"1. Open in any browser"),
-    h("div",{style:{fontSize:14,fontWeight:800,color:"#79cbff",fontFamily:"monospace",wordBreak:"break-all",lineHeight:1.2}},addr||"…"),
-    h("div",{style:{...label,marginTop:5}},"2. Enter this code"),
-    h("div",{style:{fontSize:22,fontWeight:850,letterSpacing:2,fontFamily:"monospace",lineHeight:1.1}},code)
-  );
+function pcConnect(displayUrl, status) {
+    const addr = String(displayUrl || "").replace(/^https?:\/\//, "").replace(/[\/?#].*$/, "");
+    const raw = status && status.pc_code && status.pc_code.code ? String(status.pc_code.code) : "";
+    const code = raw.length === 6 ? raw.slice(0, 3) + " " + raw.slice(3) : "··· ···";
+    const label = { fontSize: 10, opacity: .62, fontWeight: 700 };
+    return h("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 } }, h("div", { style: { ...label, textTransform: "uppercase", letterSpacing: .6, opacity: .8, marginBottom: 2 } }, "Computer"), h("div", { style: label }, "1. Open in any browser"), h("div", { style: { fontSize: 14, fontWeight: 800, color: "#79cbff", fontFamily: "monospace", wordBreak: "break-all", lineHeight: 1.2 } }, addr || "…"), h("div", { style: { ...label, marginTop: 5 } }, "2. Enter this code"), h("div", { style: { fontSize: 22, fontWeight: 850, letterSpacing: 2, fontFamily: "monospace", lineHeight: 1.1 } }, code));
 }
 function MiniButton({ children, onClick, tone = "normal", compact = false }) {
     const danger = tone === "danger";
@@ -268,14 +273,22 @@ function makePanel() {
         const transferStatesRef = useRef(new Map());
         const firstBrowseItemRef = useRef(null);
         const toggleSection = id => setOpenSections(previous => ({ ...previous, [id]: !previous[id] }));
-        const [wifi,setWifi]=useState(null),[wifiBusy,setWifiBusy]=useState(false);
-    async function loadWifi(){
-      if(wifiBusy)return;
-      setWifiBusy(true);
-      try{const r=await call("wifi_info");setWifi(r&&r.ok?r.wifi:{error:(r&&r.error)||"Wi-Fi details unavailable"});}
-      catch(e){setWifi({error:String(e&&e.message||e)});}
-      finally{setWifiBusy(false);}
-    }
+        const [wifi, setWifi] = useState(null), [wifiBusy, setWifiBusy] = useState(false);
+        async function loadWifi() {
+            if (wifiBusy)
+                return;
+            setWifiBusy(true);
+            try {
+                const r = await call("wifi_info");
+                setWifi(r && r.ok ? r.wifi : { error: (r && r.error) || "Wi-Fi details unavailable" });
+            }
+            catch (e) {
+                setWifi({ error: String(e && e.message || e) });
+            }
+            finally {
+                setWifiBusy(false);
+            }
+        }
         async function call(method, args = {}) {
             if (!backendAPI)
                 backendAPI = connectDeckyBackend();
@@ -579,20 +592,6 @@ function makePanel() {
             }
             return ok;
         }
-        async function copyAddress() {
-            if (!displayUrl)
-                return;
-            const ok = await copyToClipboard(displayUrl);
-            if (ok) {
-                setCopied(true);
-                setErr("");
-                setTimeout(() => setCopied(false), 1600);
-            }
-            else {
-                setCopied(false);
-                setErr("Copy address failed — clipboard is blocked in this Decky view");
-            }
-        }
         function toggleNotifications() { const next = !notifyOn; setNotifyOn(next); saveNotificationsEnabled(next); if (next)
             notifySeen.clear();
         else {
@@ -710,14 +709,10 @@ function makePanel() {
                 setErr("Rename: select one item"); } }, "Rename"), h(MiniButton, { onClick: () => fmChosen.length === 1 ? fmDetails(fmChosen[0]) : setErr("Details: select one item") }, "Details"), h(MiniButton, { onClick: () => { if (fmChosen.length === 1 && fmChosen[0].type === "file")
                 selectFile(fmChosen[0].path);
             else
-                setErr("Share: select one file"); } }, "Share"), h(MiniButton, { onClick: fmTrash, tone: "danger" }, fmTrashArmed ? "Tap again" : "Trash"))))), h(AccordionCard, { icon: "📥", title: "Received Files", sub: "Recent files sent from phone / PC", open: openSections.received, onToggle: () => toggleSection("received") }, (!status.received || !status.received.length) ? h("div", { style: { opacity: .5, fontSize: 12, padding: "4px 0" } }, "No received files yet") : status.received.map(f => h("div", { key: f.path, style: { background: "rgba(28,54,87,.62)", border: "1px solid rgba(120,180,255,.12)", borderRadius: 12, padding: 10, margin: "7px 0" } }, h("div", { style: { display: "flex", gap: 9, alignItems: "center" } }, h("div", { style: { width: 34, height: 34, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(120,77,255,.16)", fontSize: 19 } }, "📦"), h("div", { style: { minWidth: 0, flex: 1 } }, h("div", { style: { fontWeight: 740, wordBreak: "break-word" } }, f.name), h("div", { style: { fontSize: 10, opacity: .54, marginTop: 2 } }, f.size_human))), h("div", { style: { fontSize: 9, opacity: .42, marginTop: 6, wordBreak: "break-all" } }, f.path), h("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, h(MiniButton, { onClick: () => showReceivedFolder(f.path) }, "Show folder"), h(MiniButton, { onClick: () => copyText(f.path, "Path") }, copiedPath === f.path ? "✓ Copied" : "Copy path"), h(MiniButton, { onClick: () => deleteReceived(f.path), tone: "danger" }, deleteArmed === f.path ? "Tap again" : "Delete"))))), h(AccordionCard, { icon: "↔️", title: "Live Transfers", sub: "Progress, speed and ETA", open: openSections.transfers, onToggle: () => toggleSection("transfers") }, (!status.transfers || !status.transfers.length) ? h("div", { style: { opacity: .5, fontSize: 12, padding: "4px 0" } }, "No active transfers") : status.transfers.map(t => h("div", { key: t.id, style: { padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.05)" } }, h("div", { style: { fontWeight: 680, wordBreak: "break-word" } }, `${t.direction === "upload" ? "Phone/PC → Deck" : "Deck → Phone/PC"}  •  ${t.name}`), h("div", { style: { fontSize: 11, opacity: .62, marginTop: 2 } }, `${Number(t.percent || 0).toFixed(1)}% • ${fmt(t.speed)}/s${t.eta ? ` • ETA ${Math.ceil(t.eta)}s` : ""}${t.stalled ? ` • ⚠ stalled ${Math.round(t.stalled_for || 0)}s` : ""}`), h(Bar, { value: t.percent })))), h(AccordionCard,{icon:"📶",title:"Wi-Fi Check",sub:"Deck band, link speed and signal",open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
-        !wifi?h("div",{style:{opacity:.6,fontSize:12,padding:"4px 0"}},wifiBusy?"Checking…":"Checking Deck Wi-Fi…"):
-        wifi.error?h("div",{style:{fontSize:12,color:"#ffb4a8",padding:"4px 0"}},wifi.error):
-        h("div",null,
-          wifiRows(wifi).map(([k,v])=>h("div",{key:k,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0"}},h("span",{style:{opacity:.62}},k),h("span",{style:{fontWeight:650,textAlign:"right",wordBreak:"break-word"}},v))),
-          (wifi.hints||[]).map((t,i)=>h("div",{key:"hint"+i,style:{fontSize:11,lineHeight:1.35,marginTop:6,padding:"6px 8px",borderRadius:8,background:"rgba(102,192,244,.10)",border:"1px solid rgba(102,192,244,.25)"}},t))),
-        h("div",{style:{marginTop:8}},h(MiniButton,{onClick:loadWifi,compact:true},wifiBusy?"Checking…":"Refresh"))),
-      h(AccordionCard, { icon: "🔔", title: "Notifications", sub: "Received files and transfer results", open: openSections.notifications, onToggle: () => toggleSection("notifications"), style: { border: "1px solid rgba(120,180,255,.18)" } }, h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 } }, h("div", { style: { fontSize: 11, opacity: .65, lineHeight: 1.35 } }, notifyOn ? "On • multi-file receives are grouped" : "Notifications are off"), h(MiniButton, { onClick: toggleNotifications }, notifyOn ? "Turn off" : "Turn on"))), h(AccordionCard, { icon: "⬆️", title: "Updates", sub: "Verified GitHub releases", open: openSections.updates, onToggle: () => toggleSection("updates"), style: { border: "1px solid rgba(96,211,152,.22)" } }, h("div", { style: { fontSize: 11, opacity: .68, lineHeight: 1.45, marginBottom: 8 } }, updateInfo && updateInfo.current ? `Installed: v${updateInfo.current}` : "Installed: v1.1.0-rc.1"), updateInfo && updateInfo.installed_now && h("div", { style: { padding: "9px", borderRadius: 10, background: "rgba(70,210,125,.10)", border: "1px solid rgba(80,220,140,.18)", fontSize: 11, lineHeight: 1.45, marginBottom: 8 } }, `✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.available && h("div", { style: { padding: "9px", borderRadius: 10, background: "rgba(71,142,230,.10)", border: "1px solid rgba(100,180,255,.18)", marginBottom: 8 } }, h("div", { style: { fontWeight: 760, fontSize: 12 } }, `v${updateInfo.latest} available`), h("div", { style: { fontSize: 10, opacity: .6, marginTop: 3 } }, `${fmt(updateInfo.asset_size || 0)} • SHA-256 verified by GitHub`), updateInfo.notes && h("div", { style: { fontSize: 10, opacity: .68, whiteSpace: "pre-wrap", maxHeight: 72, overflow: "hidden", marginTop: 6 } }, updateInfo.notes)), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.same && h("div", { style: { fontSize: 11, opacity: .68, marginBottom: 8 } }, `✓ You're on the latest stable release (v${updateInfo.latest}).`), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.ahead && h("div", { style: { fontSize: 11, opacity: .68, marginBottom: 8 } }, `Development build detected. Latest stable release is v${updateInfo.latest}.`), updateInfo && !updateInfo.ok && updateInfo.error && h("div", { style: { fontSize: 11, color: "#ffb3b3", marginBottom: 8, wordBreak: "break-word" } }, updateInfo.error), h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, h(MiniButton, { onClick: () => checkUpdate(true) }, updateBusy ? "Working…" : "Check for update"), updateInfo && updateInfo.available && h(MiniButton, { onClick: installUpdate }, updateBusy ? "Installing…" : updateArmed ? `Confirm v${updateInfo.latest}` : `Install v${updateInfo.latest}`), updateInfo && updateInfo.rollback_available && h(MiniButton, { onClick: rollbackUpdate, tone: "danger" }, rollbackArmed ? "Confirm rollback" : "Rollback")), h("div", { style: { fontSize: 9, opacity: .42, lineHeight: 1.35, marginTop: 8 } }, "Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.")), h(AccordionCard, { icon: "☕", title: "Support DeckyShare", sub: "Free & open-source community project", open: openSections.support, onToggle: () => toggleSection("support"), style: { border: "1px solid rgba(255,190,75,.18)" } }, h(DialogButton, { onClick: () => { try {
+                setErr("Share: select one file"); } }, "Share"), h(MiniButton, { onClick: fmTrash, tone: "danger" }, fmTrashArmed ? "Tap again" : "Trash"))))), h(AccordionCard, { icon: "📥", title: "Received Files", sub: "Recent files sent from phone / PC", open: openSections.received, onToggle: () => toggleSection("received") }, (!status.received || !status.received.length) ? h("div", { style: { opacity: .5, fontSize: 12, padding: "4px 0" } }, "No received files yet") : status.received.map(f => h("div", { key: f.path, style: { background: "rgba(28,54,87,.62)", border: "1px solid rgba(120,180,255,.12)", borderRadius: 12, padding: 10, margin: "7px 0" } }, h("div", { style: { display: "flex", gap: 9, alignItems: "center" } }, h("div", { style: { width: 34, height: 34, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(120,77,255,.16)", fontSize: 19 } }, "📦"), h("div", { style: { minWidth: 0, flex: 1 } }, h("div", { style: { fontWeight: 740, wordBreak: "break-word" } }, f.name), h("div", { style: { fontSize: 10, opacity: .54, marginTop: 2 } }, f.size_human))), h("div", { style: { fontSize: 9, opacity: .42, marginTop: 6, wordBreak: "break-all" } }, f.path), h("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, h(MiniButton, { onClick: () => showReceivedFolder(f.path) }, "Show folder"), h(MiniButton, { onClick: () => copyText(f.path, "Path") }, copiedPath === f.path ? "✓ Copied" : "Copy path"), h(MiniButton, { onClick: () => deleteReceived(f.path), tone: "danger" }, deleteArmed === f.path ? "Tap again" : "Delete"))))), h(AccordionCard, { icon: "↔️", title: "Live Transfers", sub: "Progress, speed and ETA", open: openSections.transfers, onToggle: () => toggleSection("transfers") }, (!status.transfers || !status.transfers.length) ? h("div", { style: { opacity: .5, fontSize: 12, padding: "4px 0" } }, "No active transfers") : status.transfers.map(t => h("div", { key: t.id, style: { padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.05)" } }, h("div", { style: { fontWeight: 680, wordBreak: "break-word" } }, `${t.direction === "upload" ? "Phone/PC → Deck" : "Deck → Phone/PC"}  •  ${t.name}`), h("div", { style: { fontSize: 11, opacity: .62, marginTop: 2 } }, `${Number(t.percent || 0).toFixed(1)}% • ${fmt(t.speed)}/s${t.eta ? ` • ETA ${Math.ceil(t.eta)}s` : ""}${t.stalled ? ` • ⚠ stalled ${Math.round(t.stalled_for || 0)}s` : ""}`), h(Bar, { value: t.percent })))), h(AccordionCard, { icon: "📶", title: "Wi-Fi Check", sub: "Deck band, link speed and signal", open: openSections.wifi, onToggle: () => { const opening = !openSections.wifi; toggleSection("wifi"); if (opening)
+                loadWifi(); } }, !wifi ? h("div", { style: { opacity: .6, fontSize: 12, padding: "4px 0" } }, wifiBusy ? "Checking…" : "Checking Deck Wi-Fi…") :
+            wifi.error ? h("div", { style: { fontSize: 12, color: "#ffb4a8", padding: "4px 0" } }, wifi.error) :
+                h("div", null, wifiRows(wifi).map(([k, v]) => h("div", { key: k, style: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, padding: "2px 0" } }, h("span", { style: { opacity: .62 } }, k), h("span", { style: { fontWeight: 650, textAlign: "right", wordBreak: "break-word" } }, v))), (wifi.hints || []).map((t, i) => h("div", { key: "hint" + i, style: { fontSize: 11, lineHeight: 1.35, marginTop: 6, padding: "6px 8px", borderRadius: 8, background: "rgba(102,192,244,.10)", border: "1px solid rgba(102,192,244,.25)" } }, t))), h("div", { style: { marginTop: 8 } }, h(MiniButton, { onClick: loadWifi, compact: true }, wifiBusy ? "Checking…" : "Refresh"))), h(AccordionCard, { icon: "🔔", title: "Notifications", sub: "Received files and transfer results", open: openSections.notifications, onToggle: () => toggleSection("notifications"), style: { border: "1px solid rgba(120,180,255,.18)" } }, h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 } }, h("div", { style: { fontSize: 11, opacity: .65, lineHeight: 1.35 } }, notifyOn ? "On • multi-file receives are grouped" : "Notifications are off"), h(MiniButton, { onClick: toggleNotifications }, notifyOn ? "Turn off" : "Turn on"))), h(AccordionCard, { icon: "⬆️", title: "Updates", sub: "Verified GitHub releases", open: openSections.updates, onToggle: () => toggleSection("updates"), style: { border: "1px solid rgba(96,211,152,.22)" } }, h("div", { style: { fontSize: 11, opacity: .68, lineHeight: 1.45, marginBottom: 8 } }, updateInfo && updateInfo.current ? `Installed: v${updateInfo.current}` : "Installed: v1.1.0-rc.1"), updateInfo && updateInfo.installed_now && h("div", { style: { padding: "9px", borderRadius: 10, background: "rgba(70,210,125,.10)", border: "1px solid rgba(80,220,140,.18)", fontSize: 11, lineHeight: 1.45, marginBottom: 8 } }, `✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.available && h("div", { style: { padding: "9px", borderRadius: 10, background: "rgba(71,142,230,.10)", border: "1px solid rgba(100,180,255,.18)", marginBottom: 8 } }, h("div", { style: { fontWeight: 760, fontSize: 12 } }, `v${updateInfo.latest} available`), h("div", { style: { fontSize: 10, opacity: .6, marginTop: 3 } }, `${fmt(updateInfo.asset_size || 0)} • SHA-256 verified by GitHub`), updateInfo.notes && h("div", { style: { fontSize: 10, opacity: .68, whiteSpace: "pre-wrap", maxHeight: 72, overflow: "hidden", marginTop: 6 } }, updateInfo.notes)), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.same && h("div", { style: { fontSize: 11, opacity: .68, marginBottom: 8 } }, `✓ You're on the latest stable release (v${updateInfo.latest}).`), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.ahead && h("div", { style: { fontSize: 11, opacity: .68, marginBottom: 8 } }, `Development build detected. Latest stable release is v${updateInfo.latest}.`), updateInfo && !updateInfo.ok && updateInfo.error && h("div", { style: { fontSize: 11, color: "#ffb3b3", marginBottom: 8, wordBreak: "break-word" } }, updateInfo.error), h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, h(MiniButton, { onClick: () => checkUpdate(true) }, updateBusy ? "Working…" : "Check for update"), updateInfo && updateInfo.available && h(MiniButton, { onClick: installUpdate }, updateBusy ? "Installing…" : updateArmed ? `Confirm v${updateInfo.latest}` : `Install v${updateInfo.latest}`), updateInfo && updateInfo.rollback_available && h(MiniButton, { onClick: rollbackUpdate, tone: "danger" }, rollbackArmed ? "Confirm rollback" : "Rollback")), h("div", { style: { fontSize: 9, opacity: .42, lineHeight: 1.35, marginTop: 8 } }, "Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.")), h(AccordionCard, { icon: "☕", title: "Support DeckyShare", sub: "Free & open-source community project", open: openSections.support, onToggle: () => toggleSection("support"), style: { border: "1px solid rgba(255,190,75,.18)" } }, h(DialogButton, { onClick: () => { try {
                 window.open("https://buymeacoffee.com/Gillrv", "_blank");
             }
             catch (e) { } }, style: { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(255,196,92,.30)", background: "rgba(255,183,65,.10)", color: "#ffe0a3", fontWeight: 750 } }, "☕ Buy me a coffee")), err && h("div", { style: { color: "#ffb3b3", marginTop: 8, fontSize: 11, wordBreak: "break-word" } }, err));
