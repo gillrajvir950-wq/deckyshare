@@ -67,7 +67,7 @@ jobs:
           cp main.py core_main.py decky_http_server.py \
              exactly_once.py exactly_once_bootstrap.py notification_state.py \
              rc1_hardening.py restart_hardening.py share_sheet.py \
-             transfer_integrity.py updater.py web_ui.py \
+             steam_clips.py transfer_integrity.py updater.py web_ui.py \
              package.json plugin.json README.md CHANGELOG.md LICENSE \
              build/DeckyShare/
           cp -R dist build/DeckyShare/

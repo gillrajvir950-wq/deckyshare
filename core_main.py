@@ -23,6 +23,7 @@ from transfer_integrity import (
     validate_upload_window,
 )
 from web_ui import html_page, pair_page_html
+import steam_clips
 from share_sheet import (
     authorized as share_sheet_authorized,
     load_or_create_share_key,
@@ -377,6 +378,7 @@ class State:
 SPEED_WINDOW_SECONDS = 3.0
 STALL_AFTER_SECONDS = 2.0
 STATE = State()
+CLIPS = steam_clips.ClipExporter()
 _START_SERVER_LOCK = threading.Lock()
 
 
@@ -1204,6 +1206,35 @@ def wifi_diagnostics():
     return info
 
 
+def clips_output_dir():
+    return Path(decky.DECKY_USER_HOME) / "Videos" / "Steam Clips"
+
+
+def _clip_job_snapshot():
+    job = CLIPS.snapshot()
+    if job and job.get("size") is not None:
+        job["size_human"] = human_size(job["size"])
+    return job
+
+
+def _clip_ready(job):
+    """Offer a finished clip on the phone page ("Get from Deck")."""
+    try:
+        p = Path(job["path"])
+        if p.is_file() and path_allowed(p):
+            STATE.selected = p
+    except Exception:
+        decky.logger.exception("DeckyShare could not select the exported clip")
+
+
+def _clip_id(payload, args, kwargs):
+    if isinstance(payload, dict):
+        return str(payload.get("id") or ""), payload
+    if isinstance(payload, str):
+        return payload, kwargs
+    return str(kwargs.get("id") or ""), kwargs
+
+
 class Plugin:
     async def bootstrap(self, *args, **kwargs):
         if STATE.server is None:
@@ -1247,6 +1278,7 @@ class Plugin:
             "transfers": STATE.snapshot(),
             "receive_dir": str(STATE.receive_dir),
             "received": STATE.received_snapshot(),
+            "clip_export": _clip_job_snapshot(),
         }
 
     async def shortcut_pairing_start(self, *args, **kwargs):
@@ -1299,6 +1331,45 @@ class Plugin:
     async def cancel_transfer(self, payload=None, *args, **kwargs):
         tid = payload.get("id") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("id"))
         return cancel_transfer_by_id(str(tid or ""))
+
+    async def list_clips(self, *args, **kwargs):
+        try:
+            clips = await asyncio.to_thread(steam_clips.list_clips, Path(decky.DECKY_USER_HOME))
+        except Exception as exc:
+            decky.logger.exception("DeckyShare could not list Steam clips")
+            return {"ok": False, "error": str(exc), "clips": []}
+        for c in clips:
+            c["size_human"] = human_size(c["size"])
+        return {"ok": True, "clips": clips, "export": _clip_job_snapshot()}
+
+    async def clip_thumbnail(self, payload=None, *args, **kwargs):
+        cid, _ = _clip_id(payload, args, kwargs)
+        home = Path(decky.DECKY_USER_HOME)
+        if not cid or not steam_clips.is_clip_dir(Path(cid), home):
+            return {"ok": False, "error": "Unknown clip"}
+        thumb = Path(cid) / "thumbnail.jpg"
+        try:
+            if thumb.stat().st_size > 512 * 1024:
+                return {"ok": False, "error": "Thumbnail too large"}
+            data = base64.b64encode(thumb.read_bytes()).decode("ascii")
+        except OSError:
+            return {"ok": False, "error": "No thumbnail"}
+        return {"ok": True, "src": "data:image/jpeg;base64," + data}
+
+    async def export_clip(self, payload=None, *args, **kwargs):
+        cid, opts = _clip_id(payload, args, kwargs)
+        home = Path(decky.DECKY_USER_HOME)
+        if not cid or not steam_clips.is_clip_dir(Path(cid), home):
+            return {"ok": False, "error": "Unknown clip"}
+        try:
+            job = await asyncio.to_thread(CLIPS.start, Path(cid), clips_output_dir(), (opts or {}).get("game"), _clip_ready)
+        except steam_clips.ClipError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "export": _clip_job_snapshot() or job}
+
+    async def cancel_clip_export(self, *args, **kwargs):
+        CLIPS.stop()
+        return {"ok": True}
 
     async def wifi_info(self, *args, **kwargs):
         try:
