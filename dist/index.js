@@ -149,6 +149,7 @@ const ICON_PATHS = {
     settings: ["M12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6", "M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"],
     qr: ["M4 4h6v6H4z", "M14 4h6v6h-6z", "M4 14h6v6H4z", "M14 14h2v2h-2z", "M18 14h2", "M14 18h2", "M18 18h2v2h-2z"],
     check: ["M5 12l5 5 10-10"],
+    film: ["M4 4h16v16H4z", "M8 4v16", "M16 4v16", "M4 8h4", "M4 12h4", "M4 16h4", "M16 8h4", "M16 12h4", "M16 16h4"],
     chevronRight: ["M9 6l6 6-6 6"],
     chevronDown: ["M6 9l6 6 6-6"]
 };
@@ -248,6 +249,7 @@ function TransferHero({ transfers, onCancel, armed }) {
         return h("div", { key: t.id, style: { paddingTop: i ? 10 : 0, marginTop: i ? 10 : 0, borderTop: i ? "1px solid rgba(255,255,255,.07)" : "none" } }, h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10, fontWeight: 800, letterSpacing: .7, textTransform: "uppercase" } }, h("span", { style: { color: stalled ? "#ffb454" : "#7cc4ff" } }, up ? "Receiving from phone / PC" : "Sending to phone / PC"), transfers.length > 1 && h("span", { style: { color: "#9aabbd" } }, `${i + 1} of ${transfers.length}`)), h("div", { style: { fontSize: 13, fontWeight: 750, marginTop: 5, wordBreak: "break-word", lineHeight: 1.25 } }, t.name), h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginTop: 6 } }, h("div", { style: { fontSize: 32, fontWeight: 850, lineHeight: 1, letterSpacing: -0.5 } }, String(Math.floor(pct)), h("span", { style: { fontSize: 15, opacity: .6, marginLeft: 2 } }, "%")), h("div", { style: { fontSize: 11, opacity: .72, textAlign: "right" } }, `${fmt(t.done || 0)} / ${fmt(t.total || 0)}`)), h("div", { style: { height: 10, borderRadius: 999, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 8 } }, h("div", { style: { height: "100%", width: `${pct}%`, borderRadius: 999, background: stalled ? "#ffb454" : "#1a9fff", transition: "width .4s ease" } })), h("div", { style: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, marginTop: 7 } }, h("span", null, h("b", null, stalled ? "0 B/s" : `${fmt(t.speed)}/s`), h("span", { style: { opacity: .6 } }, " now")), h("span", { style: { opacity: .8, color: stalled ? "#ffd08a" : "inherit" } }, stalled ? `no data for ${Math.round(t.stalled_for || 0)} s` : (t.eta ? `about ${duration(t.eta)} left` : ""))), stalled && h("div", { style: { marginTop: 8, padding: "7px 9px", borderRadius: 9, background: "rgba(255,180,84,.10)", border: "1px solid rgba(255,180,84,.28)", color: "#ffd08a", fontSize: 11, lineHeight: 1.35 } }, up ? "Keep the phone's screen on with the browser open, and stay near the router." : "Keep the receiving device awake and near the router."), onCancel && t.status === "active" && h(DialogButton, { onClick: () => onCancel(t), style: { width: "100%", minHeight: 0, marginTop: 10, padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(255,120,120,.38)", background: armed === t.id ? "rgba(255,90,90,.18)" : "transparent", color: "#ff9a9a", fontSize: 13, fontWeight: 750, textAlign: "center" } }, armed === t.id ? "Press again to cancel" : "Cancel transfer"));
     }));
 }
+function Bar({ value }) { return h("div", { style: { height: 8, borderRadius: 6, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 7 } }, h("div", { style: { height: "100%", width: `${Math.max(0, Math.min(100, value || 0))}%`, background: "#66c0f4" } })); }
 function Btn({ children, onClick, disabled = false }) { return h(DialogButton, { disabled, onClick, style: { width: "100%", padding: "11px 12px", margin: "5px 0", borderRadius: 11, border: "1px solid rgba(130,190,255,.20)", background: disabled ? "rgba(255,255,255,.05)" : "rgba(34,67,106,.72)", color: "white", fontSize: 13, textAlign: "left" } }, children); }
 function Card({ children, style = {} }) { return h("div", { style: { background: "rgba(19,28,39,.96)", border: "1px solid rgba(255,255,255,.07)", borderRadius: 14, padding: 12, margin: "8px 0", ...style } }, children); }
 function AccordionCard({ icon, title, sub, open, onToggle, children, style = {}, tone = "blue", meta = null, badge = null, primary = false }) {
@@ -288,6 +290,25 @@ function timeAgo(ts) {
     if (s < 172800)
         return "yesterday";
     return `${Math.round(s / 86400)} days ago`;
+}
+function clipGameName(appid) {
+    try {
+        const store = window.appStore;
+        const o = store && typeof store.GetAppOverviewByAppID === "function" ? store.GetAppOverviewByAppID(Number(appid)) : null;
+        if (o && o.display_name)
+            return String(o.display_name);
+    }
+    catch (e) { }
+    return `Game ${appid}`;
+}
+function clipMeta(c) {
+    const parts = [];
+    if (c.seconds != null)
+        parts.push(duration(c.seconds));
+    if (c.size_human)
+        parts.push(c.size_human);
+    parts.push(timeAgo(c.created));
+    return parts.join(" · ");
 }
 function RecentList({ items }) {
     if (!items || !items.length)
@@ -349,8 +370,10 @@ function makePanel() {
     }
     return function Panel() {
         const [status, setStatus] = useState(null), [roots, setRoots] = useState([]), [path, setPath] = useState(null), [parent, setParent] = useState(null), [items, setItems] = useState([]), [err, setErr] = useState(""), [connIndex, setConnIndex] = useState(0), [deleteArmed, setDeleteArmed] = useState(null), [notifyOn, setNotifyOn] = useState(notificationsEnabled()), [copied, setCopied] = useState(false), [copiedPath, setCopiedPath] = useState(null), [updateInfo, setUpdateInfo] = useState(null), [updateBusy, setUpdateBusy] = useState(false), [updateArmed, setUpdateArmed] = useState(false), [rollbackArmed, setRollbackArmed] = useState(false), [browseQuery, setBrowseQuery] = useState(""), [browseSort, setBrowseSort] = useState("name"), [fmStorage, setFmStorage] = useState(null), [fmSelect, setFmSelect] = useState(false), [fmPicked, setFmPicked] = useState([]), [fmClip, setFmClip] = useState(null), [fmBusy, setFmBusy] = useState(false), [fmNew, setFmNew] = useState(""), [fmRename, setFmRename] = useState(null), [fmRenameValue, setFmRenameValue] = useState(""), [fmInfo, setFmInfo] = useState(null), [fmTrashArmed, setFmTrashArmed] = useState(false), [browseLimit, setBrowseLimit] = useState(50), [fmMenu, setFmMenu] = useState(false);
-        const [openSections, setOpenSections] = useState({ browse: false, received: false, updates: false, support: false, wifi: false });
+        const [openSections, setOpenSections] = useState({ browse: false, clips: false, received: false, updates: false, support: false, wifi: false });
         const [showQr, setShowQr] = useState(false), [cancelArmed, setCancelArmed] = useState(null);
+        const [clips, setClips] = useState(null), [clipThumbs, setClipThumbs] = useState({}), [clipLimit, setClipLimit] = useState(8), [clipBusy, setClipBusy] = useState(false);
+        const clipJobRef = useRef(null);
         const lastReceivedRef = useRef(null);
         const transferStatesRef = useRef(new Map());
         const firstBrowseItemRef = useRef(null);
@@ -777,6 +800,73 @@ function makePanel() {
                 setUpdateBusy(false);
             }
         }
+        async function loadClips() {
+            if (clipBusy)
+                return;
+            setClipBusy(true);
+            try {
+                const r = await call("list_clips");
+                if (!r || !r.ok)
+                    throw new Error(r && r.error || "Could not read game recordings");
+                setClips(r.clips || []);
+                if (r.export)
+                    setStatus(x => ({ ...x, clip_export: r.export }));
+            }
+            catch (e) {
+                setClips([]);
+                setErr("Clips: " + String(e && e.message || e));
+            }
+            finally {
+                setClipBusy(false);
+            }
+        }
+        async function loadClipThumbs(list) {
+            for (const c of list) {
+                if (!c.has_thumbnail || clipThumbs[c.id])
+                    continue;
+                try {
+                    const r = await call("clip_thumbnail", { id: c.id });
+                    if (r && r.ok && r.src)
+                        setClipThumbs(t => ({ ...t, [c.id]: r.src }));
+                }
+                catch (e) { }
+            }
+        }
+        async function exportClip(c) {
+            const job = status && status.clip_export;
+            if (job && job.state === "working")
+                return;
+            try {
+                const r = await call("export_clip", { id: c.id, game: clipGameName(c.appid) });
+                if (!r || !r.ok)
+                    throw new Error(r && r.error || "Could not prepare the clip");
+                setStatus(x => ({ ...x, clip_export: r.export }));
+                await refreshStatus();
+            }
+            catch (e) {
+                setErr("Clip: " + String(e && e.message || e));
+            }
+        }
+        async function cancelClipExport() { try {
+            await call("cancel_clip_export");
+            await refreshStatus();
+        }
+        catch (e) {
+            setErr("Clip: " + String(e && e.message || e));
+        } }
+        useEffect(() => { if (openSections.clips && status)
+            loadClips(); }, [openSections.clips, !!status]);
+        useEffect(() => { if (clips && openSections.clips)
+            loadClipThumbs(clips.slice(0, clipLimit)); }, [clips, clipLimit, openSections.clips]);
+        useEffect(() => {
+            const job = status && status.clip_export;
+            const prev = clipJobRef.current;
+            if (job && job.state === "done" && prev && prev.id === job.id && prev.state === "working")
+                toast(backendAPI, "Clip ready • on your phone tap Get from Deck");
+            if (job && job.state === "error" && prev && prev.state === "working")
+                setErr("Clip: " + String(job.error || "failed"));
+            clipJobRef.current = job ? { id: job.id, state: job.state } : null;
+        }, [status && status.clip_export && status.clip_export.state, status && status.clip_export && status.clip_export.id]);
         useEffect(() => { bootstrap(); }, []);
         useEffect(() => { if (!status)
             return; loadWifi(); checkUpdate(false); }, [!!status]);
@@ -825,7 +915,14 @@ function makePanel() {
                 setErr("Rename: select one item"); } }, "Rename"), h(MiniButton, { onClick: () => fmChosen.length === 1 ? fmDetails(fmChosen[0]) : setErr("Details: select one item") }, "Details"), h(MiniButton, { onClick: () => { if (fmChosen.length === 1 && fmChosen[0].type === "file")
                 selectFile(fmChosen[0].path);
             else
-                setErr("Share: select one file"); } }, "Share"), h(MiniButton, { onClick: fmTrash, tone: "danger" }, fmTrashArmed ? "Tap again" : "Trash"))))), h(AccordionCard, { icon: "inbox", tone: "green", title: "Received files", sub: "Saved in Downloads/DeckShare", badge: status.received && status.received.length ? status.received.length : null, open: openSections.received, onToggle: () => toggleSection("received") }, (!status.received || !status.received.length) ? h("div", { style: { opacity: .5, fontSize: 12, padding: "4px 0" } }, "No received files yet") : status.received.map(f => h("div", { key: f.path, style: { background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.06)", borderRadius: 12, padding: 10, margin: "7px 0" } }, h("div", { style: { display: "flex", gap: 9, alignItems: "center" } }, h("div", { style: { width: 34, height: 34, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(26,159,255,.12)", color: "#7cc4ff" } }, browseFileIcon(f, 18)), h("div", { style: { minWidth: 0, flex: 1 } }, h("div", { style: { fontWeight: 740, wordBreak: "break-word" } }, f.name), h("div", { style: { fontSize: 10, opacity: .54, marginTop: 2 } }, f.size_human))), h("div", { style: { fontSize: 9, opacity: .42, marginTop: 6, wordBreak: "break-all" } }, f.path), h("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, h(MiniButton, { onClick: () => showReceivedFolder(f.path) }, "Show folder"), h(MiniButton, { onClick: () => copyText(f.path, "Path") }, copiedPath === f.path ? "✓ Copied" : "Copy path"), h(MiniButton, { onClick: () => deleteReceived(f.path), tone: "danger" }, deleteArmed === f.path ? "Tap again" : "Delete"))))), busy && h(DialogButton, { onClick: () => setShowQr(v => !v), style: { width: "100%", minHeight: 0, margin: "8px 0", padding: "11px 12px", borderRadius: 14, border: "1px solid rgba(255,255,255,.07)", background: "rgba(19,28,39,.96)", color: "white", textAlign: "left" } }, h("div", { style: { display: "flex", alignItems: "center", gap: 9 } }, h(IconTile, { name: "qr", tone: "gray" }), h("span", { style: { fontWeight: 760, fontSize: 14 } }, showQr ? "Hide QR code" : "Show QR code"))), !busy && h(RecentList, { items: status.received }), !busy && h("div", { style: { fontSize: 10, fontWeight: 800, letterSpacing: .9, textTransform: "uppercase", opacity: .45, margin: "16px 4px 4px" } }, "More"), !busy && h(AccordionCard, { icon: "wifi", tone: "gray", title: "Wi-Fi", sub: null, meta: wifiSummary(wifi), open: openSections.wifi, onToggle: () => { const opening = !openSections.wifi; toggleSection("wifi"); if (opening)
+                setErr("Share: select one file"); } }, "Share"), h(MiniButton, { onClick: fmTrash, tone: "danger" }, fmTrashArmed ? "Tap again" : "Trash"))))), h(AccordionCard, { icon: "film", tone: "pink", title: "Game clips", sub: "Any length, straight to your phone", open: openSections.clips, onToggle: () => toggleSection("clips") }, clips === null ? h("div", { style: { opacity: .55, fontSize: 12, padding: "4px 0" } }, "Looking for game recordings…") :
+            !clips.length ? h("div", { style: { fontSize: 11, opacity: .62, lineHeight: 1.4, padding: "2px 0" } }, "No clips found. Record in a game (Steam button › Game Recording), save a clip, then come back here.") :
+                h("div", null, clips.slice(0, clipLimit).map((c, i) => {
+                    const job = status.clip_export && status.clip_export.id === c.id ? status.clip_export : null;
+                    const working = job && job.state === "working";
+                    const ready = job && job.state === "done" && status.selected && status.selected.path === job.path;
+                    return h(DialogButton, { key: c.id, onClick: () => working ? null : exportClip(c), style: { width: "100%", minHeight: 0, padding: "6px 7px", margin: "3px 0", borderRadius: 10, border: ready ? "1px solid rgba(61,220,132,.45)" : "1px solid rgba(255,255,255,.07)", background: ready ? "rgba(61,220,132,.08)" : "rgba(255,255,255,.035)", color: "white", textAlign: "left" } }, h("div", { style: { display: "grid", gridTemplateColumns: "64px minmax(0,1fr)", gap: 9, alignItems: "center" } }, clipThumbs[c.id] ? h("img", { src: clipThumbs[c.id], style: { width: 64, height: 36, objectFit: "cover", borderRadius: 6, display: "block" } }) : h("div", { style: { width: 64, height: 36, borderRadius: 6, background: "rgba(255,120,160,.10)", color: "#ff9dbb", display: "flex", alignItems: "center", justifyContent: "center" } }, h(Icon, { name: "film", size: 16 })), h("div", { style: { minWidth: 0 } }, h("div", { style: { fontSize: 11, fontWeight: 740, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, clipGameName(c.appid)), h("div", { style: { fontSize: 9, opacity: .55, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, clipMeta(c)), working && h("div", { style: { fontSize: 9, color: "#ffc0d3", marginTop: 3 } }, `Preparing for phone… ${Math.floor(job.percent || 0)}%`), ready && h("div", { style: { display: "flex", alignItems: "center", gap: 4, fontSize: 9, fontWeight: 750, color: "#7fe3ad", marginTop: 3 } }, h(Icon, { name: "check", size: 11 }), "Ready • open Get from Deck on your phone"), job && job.state === "error" && h("div", { style: { fontSize: 9, color: "#ff9a9a", marginTop: 3 } }, job.error || "Failed"))), working && h(Bar, { value: job.percent }));
+                }), status.clip_export && status.clip_export.state === "working" && h(MiniButton, { onClick: cancelClipExport, tone: "danger" }, "Stop preparing"), clips.length > clipLimit && h(DialogButton, { onClick: () => setClipLimit(x => x + 8), style: { width: "100%", padding: "7px", marginTop: 5, borderRadius: 9, border: "1px solid rgba(120,180,255,.16)", background: "rgba(255,255,255,.025)", color: "#bde7ff", fontSize: 10, fontWeight: 700 } }, `Show more • ${clipLimit} of ${clips.length}`), h("div", { style: { fontSize: 9, opacity: .45, lineHeight: 1.4, marginTop: 7 } }, "Tap a clip: DeckyShare turns it into an MP4 (same quality) and offers it on your phone under Get from Deck. A copy is kept in Videos/Steam Clips."), h(MiniButton, { onClick: loadClips }, clipBusy ? "Refreshing…" : "Refresh"))), h(AccordionCard, { icon: "inbox", tone: "green", title: "Received files", sub: "Saved in Downloads/DeckShare", badge: status.received && status.received.length ? status.received.length : null, open: openSections.received, onToggle: () => toggleSection("received") }, (!status.received || !status.received.length) ? h("div", { style: { opacity: .5, fontSize: 12, padding: "4px 0" } }, "No received files yet") : status.received.map(f => h("div", { key: f.path, style: { background: "rgba(255,255,255,.035)", border: "1px solid rgba(255,255,255,.06)", borderRadius: 12, padding: 10, margin: "7px 0" } }, h("div", { style: { display: "flex", gap: 9, alignItems: "center" } }, h("div", { style: { width: 34, height: 34, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(26,159,255,.12)", color: "#7cc4ff" } }, browseFileIcon(f, 18)), h("div", { style: { minWidth: 0, flex: 1 } }, h("div", { style: { fontWeight: 740, wordBreak: "break-word" } }, f.name), h("div", { style: { fontSize: 10, opacity: .54, marginTop: 2 } }, f.size_human))), h("div", { style: { fontSize: 9, opacity: .42, marginTop: 6, wordBreak: "break-all" } }, f.path), h("div", { style: { display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" } }, h(MiniButton, { onClick: () => showReceivedFolder(f.path) }, "Show folder"), h(MiniButton, { onClick: () => copyText(f.path, "Path") }, copiedPath === f.path ? "✓ Copied" : "Copy path"), h(MiniButton, { onClick: () => deleteReceived(f.path), tone: "danger" }, deleteArmed === f.path ? "Tap again" : "Delete"))))), busy && h(DialogButton, { onClick: () => setShowQr(v => !v), style: { width: "100%", minHeight: 0, margin: "8px 0", padding: "11px 12px", borderRadius: 14, border: "1px solid rgba(255,255,255,.07)", background: "rgba(19,28,39,.96)", color: "white", textAlign: "left" } }, h("div", { style: { display: "flex", alignItems: "center", gap: 9 } }, h(IconTile, { name: "qr", tone: "gray" }), h("span", { style: { fontWeight: 760, fontSize: 14 } }, showQr ? "Hide QR code" : "Show QR code"))), !busy && h(RecentList, { items: status.received }), !busy && h("div", { style: { fontSize: 10, fontWeight: 800, letterSpacing: .9, textTransform: "uppercase", opacity: .45, margin: "16px 4px 4px" } }, "More"), !busy && h(AccordionCard, { icon: "wifi", tone: "gray", title: "Wi-Fi", sub: null, meta: wifiSummary(wifi), open: openSections.wifi, onToggle: () => { const opening = !openSections.wifi; toggleSection("wifi"); if (opening)
                 loadWifi(); } }, !wifi ? h("div", { style: { opacity: .6, fontSize: 12, padding: "4px 0" } }, wifiBusy ? "Checking…" : "Checking Deck Wi-Fi…") :
             wifi.error ? h("div", { style: { fontSize: 12, color: "#ffb4a8", padding: "4px 0" } }, wifi.error) :
                 h("div", null, wifiRows(wifi).map(([k, v]) => h("div", { key: k, style: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, padding: "2px 0" } }, h("span", { style: { opacity: .62 } }, k), h("span", { style: { fontWeight: 650, textAlign: "right", wordBreak: "break-word" } }, v))), (wifi.hints || []).map((t, i) => h("div", { key: "hint" + i, style: { fontSize: 11, lineHeight: 1.35, marginTop: 6, padding: "6px 8px", borderRadius: 8, background: "rgba(102,192,244,.10)", border: "1px solid rgba(102,192,244,.25)" } }, t))), h("div", { style: { marginTop: 8 } }, h(MiniButton, { onClick: loadWifi, compact: true }, wifiBusy ? "Checking…" : "Refresh"))), !busy && h(AccordionCard, { icon: "update", tone: "gray", title: "Updates", sub: null, meta: updateMeta(updateInfo), open: openSections.updates, onToggle: () => toggleSection("updates") }, h("div", { style: { fontSize: 11, opacity: .68, lineHeight: 1.45, marginBottom: 8 } }, updateInfo && updateInfo.current ? `Installed: v${updateInfo.current}` : (status.version ? `Installed: v${status.version}` : "")), updateInfo && updateInfo.installed_now && h("div", { style: { padding: "9px", borderRadius: 10, background: "rgba(70,210,125,.10)", border: "1px solid rgba(80,220,140,.18)", fontSize: 11, lineHeight: 1.45, marginBottom: 8 } }, `✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.available && h("div", { style: { padding: "9px", borderRadius: 10, background: "rgba(71,142,230,.10)", border: "1px solid rgba(100,180,255,.18)", marginBottom: 8 } }, h("div", { style: { fontWeight: 760, fontSize: 12 } }, `v${updateInfo.latest} available`), h("div", { style: { fontSize: 10, opacity: .6, marginTop: 3 } }, `${fmt(updateInfo.asset_size || 0)} • SHA-256 verified by GitHub`), updateInfo.notes && h("div", { style: { fontSize: 10, opacity: .68, whiteSpace: "pre-wrap", maxHeight: 72, overflow: "hidden", marginTop: 6 } }, updateInfo.notes)), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.same && h("div", { style: { fontSize: 11, opacity: .68, marginBottom: 8 } }, `✓ You're on the latest stable release (v${updateInfo.latest}).`), updateInfo && updateInfo.ok && updateInfo.latest && updateInfo.ahead && h("div", { style: { fontSize: 11, opacity: .68, marginBottom: 8 } }, `Development build detected. Latest stable release is v${updateInfo.latest}.`), updateInfo && !updateInfo.ok && updateInfo.error && h("div", { style: { fontSize: 11, color: "#ffb3b3", marginBottom: 8, wordBreak: "break-word" } }, updateInfo.error), h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, h(MiniButton, { onClick: () => checkUpdate(true) }, updateBusy ? "Working…" : "Check for update"), updateInfo && updateInfo.available && h(MiniButton, { onClick: installUpdate }, updateBusy ? "Installing…" : updateArmed ? `Confirm v${updateInfo.latest}` : `Install v${updateInfo.latest}`), updateInfo && updateInfo.rollback_available && h(MiniButton, { onClick: rollbackUpdate, tone: "danger" }, rollbackArmed ? "Confirm rollback" : "Rollback")), h("div", { style: { fontSize: 9, opacity: .42, lineHeight: 1.35, marginTop: 8 } }, "Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.")), !busy && h(AccordionCard, { icon: "settings", tone: "gray", title: "Settings & support", sub: null, open: openSections.support, onToggle: () => toggleSection("support") }, h(SubSection, { title: "Notifications", first: true }, h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 } }, h("div", { style: { fontSize: 11, opacity: .65, lineHeight: 1.35 } }, notifyOn ? "On • multi-file receives are grouped" : "Notifications are off"), h(MiniButton, { onClick: toggleNotifications }, notifyOn ? "Turn off" : "Turn on"))), h(SubSection, { title: "Support DeckyShare" }, h(DialogButton, { onClick: () => { try {
