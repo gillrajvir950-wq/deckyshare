@@ -140,6 +140,36 @@ function browseVisibleItems(items,query,sortMode){
   return list.map(x=>x.it);
 }
 
+function duration(sec){
+  if(!Number.isFinite(sec)||sec<0)return "";
+  sec=Math.round(sec);
+  if(sec<60)return `${sec} s`;
+  const m=Math.floor(sec/60),r=sec%60;
+  if(m<60)return r?`${m} min ${r} s`:`${m} min`;
+  return `${Math.floor(m/60)} h ${m%60} min`;
+}
+function TransferHero({transfers}){
+  if(!transfers||!transfers.length)return null;
+  return h(Card,{style:{border:"2px solid #1a9fff",background:"linear-gradient(180deg,rgba(18,42,68,.97),rgba(12,28,46,.97))"}},
+    transfers.map((t,i)=>{
+      const up=t.direction==="upload",pct=Math.max(0,Math.min(100,Number(t.percent||0))),stalled=!!t.stalled;
+      return h("div",{key:t.id,style:{paddingTop:i?10:0,marginTop:i?10:0,borderTop:i?"1px solid rgba(255,255,255,.07)":"none"}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,fontSize:10,fontWeight:800,letterSpacing:.7,textTransform:"uppercase"}},
+          h("span",{style:{color:stalled?"#ffb454":"#7cc4ff"}},up?"Receiving from phone / PC":"Sending to phone / PC"),
+          transfers.length>1&&h("span",{style:{color:"#9aabbd"}},`${i+1} of ${transfers.length}`)),
+        h("div",{style:{fontSize:13,fontWeight:750,marginTop:5,wordBreak:"break-word",lineHeight:1.25}},t.name),
+        h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8,marginTop:6}},
+          h("div",{style:{fontSize:32,fontWeight:850,lineHeight:1,letterSpacing:-.5}},String(Math.floor(pct)),h("span",{style:{fontSize:15,opacity:.6,marginLeft:2}},"%")),
+          h("div",{style:{fontSize:11,opacity:.72,textAlign:"right"}},`${fmt(t.done||0)} / ${fmt(t.total||0)}`)),
+        h("div",{style:{height:10,borderRadius:999,background:"rgba(255,255,255,.12)",overflow:"hidden",marginTop:8}},
+          h("div",{style:{height:"100%",width:`${pct}%`,borderRadius:999,background:stalled?"#ffb454":"#1a9fff",transition:"width .4s ease"}})),
+        h("div",{style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,marginTop:7}},
+          h("span",null,h("b",null,stalled?"0 B/s":`${fmt(t.speed)}/s`),h("span",{style:{opacity:.6}}," now")),
+          h("span",{style:{opacity:.8,color:stalled?"#ffd08a":"inherit"}},stalled?`no data for ${Math.round(t.stalled_for||0)} s`:(t.eta?`about ${duration(t.eta)} left`:""))),
+        stalled&&h("div",{style:{marginTop:8,padding:"7px 9px",borderRadius:9,background:"rgba(255,180,84,.10)",border:"1px solid rgba(255,180,84,.28)",color:"#ffd08a",fontSize:11,lineHeight:1.35}},
+          up?"Keep the phone's screen on with the browser open, and stay near the router.":"Keep the receiving device awake and near the router."));
+    }));
+}
 function Bar({value}){return h("div",{style:{height:8,borderRadius:6,background:"rgba(255,255,255,.12)",overflow:"hidden",marginTop:7}},h("div",{style:{height:"100%",width:`${Math.max(0,Math.min(100,value||0))}%`,background:"#66c0f4"}}));}
 function Btn({children,onClick,disabled=false}){return h(DialogButton,{disabled,onClick,style:{width:"100%",padding:"11px 12px",margin:"5px 0",borderRadius:11,border:"1px solid rgba(130,190,255,.20)",background:disabled?"rgba(255,255,255,.05)":"rgba(34,67,106,.72)",color:"white",fontSize:13,textAlign:"left"}},children);}
 function Card({children,style={}}){return h("div",{style:{background:"linear-gradient(180deg,rgba(22,42,68,.92),rgba(15,29,49,.92))",border:"1px solid rgba(120,180,255,.16)",borderRadius:15,padding:13,margin:"10px 0",boxShadow:"0 5px 18px rgba(0,0,0,.12)",...style}},children);}
@@ -217,7 +247,7 @@ function makePanel(){
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
     const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name"),[fmStorage,setFmStorage]=useState(null),[fmSelect,setFmSelect]=useState(false),[fmPicked,setFmPicked]=useState([]),[fmClip,setFmClip]=useState(null),[fmBusy,setFmBusy]=useState(false),[fmNew,setFmNew]=useState(""),[fmRename,setFmRename]=useState(null),[fmRenameValue,setFmRenameValue]=useState(""),[fmInfo,setFmInfo]=useState(null),[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50),[fmMenu,setFmMenu]=useState(false);
-    const [openSections,setOpenSections]=useState({browse:true,received:false,transfers:false,notifications:false,updates:false,support:false,wifi:false});
+    const [openSections,setOpenSections]=useState({browse:true,received:false,notifications:false,updates:false,support:false,wifi:false});
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
     const firstBrowseItemRef=useRef(null);
@@ -403,7 +433,6 @@ function makePanel(){
     useEffect(()=>{bootstrap();},[]);
     useEffect(()=>{if(!status)return;const t=setInterval(refreshStatus,path?4000:1500);return()=>clearInterval(t);},[!!status,!!path]);
     useEffect(()=>{if(!path||status&&status.selected)return;const t=setTimeout(()=>{try{if(firstBrowseItemRef.current&&typeof firstBrowseItemRef.current.focus==="function")firstBrowseItemRef.current.focus();}catch(e){}},80);return()=>clearTimeout(t);},[path,items,status&&status.selected]);
-    useEffect(()=>{if(status&&status.transfers&&status.transfers.length)setOpenSections(previous=>previous.transfers?previous:{...previous,transfers:true});},[status&&status.transfers&&status.transfers.length]);
 
     const conns=status&&status.addresses||[];
     const activeConn=conns[Math.min(connIndex,Math.max(0,conns.length-1))]||null;
@@ -419,8 +448,9 @@ function makePanel(){
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
       h("style",null,".deckyshare-root .deckyshare-compact-action{min-width:0!important;min-height:26px!important;height:26px!important;padding:2px 5px!important;display:flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;overflow:hidden!important}.deckyshare-root .deckyshare-compact-action>div{min-width:0!important;min-height:0!important;height:100%!important;width:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;text-overflow:ellipsis!important}.deckyshare-root .deckyshare-action:focus{animation:none!important}"),
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.33")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.34")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
 
+      h(TransferHero,{transfers:status.transfers}),
       h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
         h(SectionTitle,{icon:"📡",title:"Connect",sub:"Phone: scan the QR · Computer: address + code"}),
         h("div",{style:{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:999,background:status.server_self_test?"rgba(56,232,121,.10)":"rgba(255,112,112,.10)",color:status.server_self_test?"#8ef6aa":"#ffb3b3",fontSize:11,fontWeight:700,marginBottom:10}},status.server_self_test?"● Ready to connect":"● Server unavailable"),
@@ -491,9 +521,6 @@ function makePanel(){
         ))
       ),
 
-      h(AccordionCard,{icon:"↔️",title:"Live Transfers",sub:"Progress, speed and ETA",open:openSections.transfers,onToggle:()=>toggleSection("transfers")},
-        (!status.transfers||!status.transfers.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No active transfers"):status.transfers.map(t=>h("div",{key:t.id,style:{padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.05)"}},h("div",{style:{fontWeight:680,wordBreak:"break-word"}},`${t.direction==="upload"?"Phone/PC → Deck":"Deck → Phone/PC"}  •  ${t.name}`),h("div",{style:{fontSize:11,opacity:.62,marginTop:2}},`${Number(t.percent||0).toFixed(1)}% • ${fmt(t.speed)}/s${t.eta?` • ETA ${Math.ceil(t.eta)}s`:""}${t.stalled?` • ⚠ stalled ${Math.round(t.stalled_for||0)}s`:""}`),h(Bar,{value:t.percent})))
-      ),
 
       h(AccordionCard,{icon:"📶",title:"Wi-Fi Check",sub:"Deck band, link speed and signal",open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
         !wifi?h("div",{style:{opacity:.6,fontSize:12,padding:"4px 0"}},wifiBusy?"Checking…":"Checking Deck Wi-Fi…"):

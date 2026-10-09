@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.0-rc.11.34
+
+- Deck panel: an active transfer now appears as a large card at the very top of the panel with the percentage, size, live speed and time left. A stalled transfer turns the card amber with a hint. The old "Live Transfers" section further down is gone.
+- The Deck panel is now built from `src/index.tsx` in CI (release builds and release branches), instead of hand-maintained `dist` edits.
+
 ## v1.1.0-rc.11.33
 
 - Redesigned phone/PC page: "Send to Deck" and "Get from Deck" tabs instead of one long scroll; a large file picker with a list of chosen files (remove any, drag and drop on a computer); a Maximum Speed switch; and a transfer card at the top with big progress, live speed, time left and a "no data" warning when the transfer stalls. Pause/Cancel only appear while sending, and the picker hides during a transfer.
