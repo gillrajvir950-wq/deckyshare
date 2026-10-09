@@ -175,6 +175,7 @@ class State:
         self.browser_pair_expires = 0.0
         self.browser_pair_attempts = {}
         self.browser_pair_failures = []
+        self.cancel_tids = set()
 
     def new_transfer(self, direction, name, total, initial_done=0):
         tid = secrets.token_hex(6)
@@ -420,6 +421,43 @@ def browser_pair_check(client, provided):
         return 403, "Wrong code. Check the 6 digits on your Steam Deck."
 
 
+def cancel_transfer_by_id(tid):
+    """Stop an active transfer from the Deck panel (upload or download)."""
+    with STATE.lock:
+        t = STATE.transfers.get(tid)
+        if not t or t.get("status") != "active":
+            return {"ok": False, "error": "Transfer is no longer active"}
+        if t.get("direction") == "download":
+            # Stop every active download of this file and stop sharing it, so
+            # the browser's automatic Range resume cannot quietly restart it.
+            for other_id, other in STATE.transfers.items():
+                if other.get("direction") == "download" and other.get("status") == "active" and other.get("name") == t.get("name"):
+                    STATE.cancel_tids.add(other_id)
+            STATE.selected = None
+            return {"ok": True, "cancelled": t.get("name"), "stopped_sharing": True}
+        found = [(uid, x) for uid, x in getattr(STATE, "upload_sessions", {}).items() if x.get("tid") == tid]
+        sessions = [x for _, x in found]
+        # Resumable modes retry with the same upload id; remember it so the
+        # retry is refused instead of quietly finishing the file.
+        cancelled_ids = getattr(STATE, "deck_cancelled_uploads", None)
+        if cancelled_ids is None:
+            cancelled_ids = STATE.deck_cancelled_uploads = {}
+        now = time.time()
+        for uid in list(cancelled_ids):
+            if now - cancelled_ids[uid] > 3600:
+                del cancelled_ids[uid]
+        for uid, _ in found:
+            cancelled_ids[uid] = now
+    if not sessions:
+        STATE.update_transfer(tid, status="cancelled")
+        return {"ok": True, "cancelled": t.get("name")}
+    for session in sessions:
+        session["deck_cancel"] = True
+        session["cancel_event"].set()
+    STATE.update_transfer(tid, status="cancelled")
+    return {"ok": True, "cancelled": t.get("name")}
+
+
 def short_address():
     return f"{local_ip()}:{STATE.port}"
 
@@ -628,6 +666,11 @@ class Handler(BaseHTTPRequestHandler):
                 f.seek(start)
                 remain = length
                 while remain:
+                    if tid in STATE.cancel_tids:
+                        # Cancelled from the Deck panel: stop sending and drop the
+                        # connection so the browser reports an incomplete download.
+                        self.close_connection = True
+                        break
                     chunk = f.read(min(16 * 1024 * 1024, remain))
                     if not chunk:
                         break
@@ -635,7 +678,11 @@ class Handler(BaseHTTPRequestHandler):
                     sent += len(chunk)
                     remain -= len(chunk)
                     STATE.update_transfer(tid, sent)
-            STATE.update_transfer(tid, sent, "complete" if sent == length else "failed")
+            if tid in STATE.cancel_tids:
+                STATE.cancel_tids.discard(tid)
+                STATE.update_transfer(tid, sent, "cancelled")
+            else:
+                STATE.update_transfer(tid, sent, "complete" if sent == length else "failed")
         except (BrokenPipeError, ConnectionResetError):
             STATE.update_transfer(tid, status="failed")
         except Exception:
@@ -1149,6 +1196,10 @@ class Plugin:
         with STATE.lock:
             STATE.received = [x for x in STATE.received if x.get("path") != str(p)]
         return {"ok": True, "received": STATE.received_snapshot()}
+
+    async def cancel_transfer(self, payload=None, *args, **kwargs):
+        tid = payload.get("id") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("id"))
+        return cancel_transfer_by_id(str(tid or ""))
 
     async def wifi_info(self, *args, **kwargs):
         try:

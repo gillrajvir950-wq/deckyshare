@@ -113,6 +113,9 @@ const ICON_PATHS={
   doc:["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M14 3v5h5"],
   text:["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M14 3v5h5","M9 13h6","M9 17h4"],
   monitor:["M3 4h18v12H3z","M8 20h8","M12 16v4"],
+  settings:["M12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6","M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"],
+  qr:["M4 4h6v6H4z","M14 4h6v6h-6z","M4 14h6v6H4z","M14 14h2v2h-2z","M18 14h2","M14 18h2","M18 18h2v2h-2z"],
+  check:["M5 12l5 5 10-10"],
   chevronRight:["M9 6l6 6-6 6"],
   chevronDown:["M6 9l6 6 6-6"]
 };
@@ -180,7 +183,7 @@ function duration(sec){
   if(m<60)return r?`${m} min ${r} s`:`${m} min`;
   return `${Math.floor(m/60)} h ${m%60} min`;
 }
-function TransferHero({transfers}){
+function TransferHero({transfers,onCancel,armed}){
   if(!transfers||!transfers.length)return null;
   return h(Card,{style:{border:"2px solid #1a9fff",background:"linear-gradient(180deg,rgba(18,42,68,.97),rgba(12,28,46,.97))"}},
     transfers.map((t,i)=>{
@@ -199,20 +202,21 @@ function TransferHero({transfers}){
           h("span",null,h("b",null,stalled?"0 B/s":`${fmt(t.speed)}/s`),h("span",{style:{opacity:.6}}," now")),
           h("span",{style:{opacity:.8,color:stalled?"#ffd08a":"inherit"}},stalled?`no data for ${Math.round(t.stalled_for||0)} s`:(t.eta?`about ${duration(t.eta)} left`:""))),
         stalled&&h("div",{style:{marginTop:8,padding:"7px 9px",borderRadius:9,background:"rgba(255,180,84,.10)",border:"1px solid rgba(255,180,84,.28)",color:"#ffd08a",fontSize:11,lineHeight:1.35}},
-          up?"Keep the phone's screen on with the browser open, and stay near the router.":"Keep the receiving device awake and near the router."));
+          up?"Keep the phone's screen on with the browser open, and stay near the router.":"Keep the receiving device awake and near the router."),
+        onCancel&&t.status==="active"&&h(DialogButton,{onClick:()=>onCancel(t),style:{width:"100%",minHeight:0,marginTop:10,padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,120,120,.38)",background:armed===t.id?"rgba(255,90,90,.18)":"transparent",color:"#ff9a9a",fontSize:13,fontWeight:750,textAlign:"center"}},armed===t.id?"Press again to cancel":"Cancel transfer"));
     }));
 }
 function Bar({value}){return h("div",{style:{height:8,borderRadius:6,background:"rgba(255,255,255,.12)",overflow:"hidden",marginTop:7}},h("div",{style:{height:"100%",width:`${Math.max(0,Math.min(100,value||0))}%`,background:"#66c0f4"}}));}
 function Btn({children,onClick,disabled=false}){return h(DialogButton,{disabled,onClick,style:{width:"100%",padding:"11px 12px",margin:"5px 0",borderRadius:11,border:"1px solid rgba(130,190,255,.20)",background:disabled?"rgba(255,255,255,.05)":"rgba(34,67,106,.72)",color:"white",fontSize:13,textAlign:"left"}},children);}
 function Card({children,style={}}){return h("div",{style:{background:"rgba(19,28,39,.96)",border:"1px solid rgba(255,255,255,.07)",borderRadius:14,padding:12,margin:"8px 0",...style}},children);}
 function SectionTitle({icon,title,sub,tone="blue"}){return h("div",{style:{display:"flex",gap:10,alignItems:"center",marginBottom:10}},typeof icon==="string"?h(IconTile,{name:icon,tone}):icon,h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:780,fontSize:14}},title),sub&&h("div",{style:{fontSize:10,opacity:.6,marginTop:1,lineHeight:1.3}},sub)));}
-function AccordionCard({icon,title,sub,open,onToggle,children,style={},tone="blue",meta=null,badge=null}){
-  return h(Card,{style},
+function AccordionCard({icon,title,sub,open,onToggle,children,style={},tone="blue",meta=null,badge=null,primary=false}){
+  return h(Card,{style:primary&&!open?{border:"2px solid #1a9fff",background:"rgba(18,39,61,.96)",...style}:style},
     h(DialogButton,{onClick:onToggle,"aria-expanded":!!open,style:{width:"100%",minHeight:0,padding:"1px",margin:0,border:0,background:"transparent",color:"white",textAlign:"left"}},
       h("div",{style:{display:"grid",gridTemplateColumns:"30px minmax(0,1fr) auto 18px",gap:9,alignItems:"center"}},
         typeof icon==="string"?h(IconTile,{name:icon,tone}):icon,
         h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:760,fontSize:14}},title),sub&&h("div",{style:{fontSize:10,opacity:.58,marginTop:1,lineHeight:1.25,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},sub)),
-        badge!=null?h("span",{style:{fontSize:10,fontWeight:800,color:"#06121f",background:"#c9d6e3",borderRadius:999,padding:"1px 7px"}},badge):(meta?h("span",{style:{fontSize:10,fontWeight:700,color:"#9fe0b8",whiteSpace:"nowrap"}},meta):h("span",null)),
+        badge!=null?h("span",{style:{fontSize:10,fontWeight:800,color:"#06121f",background:"#c9d6e3",borderRadius:999,padding:"1px 7px"}},badge):(meta?h("span",{style:{fontSize:10,fontWeight:700,color:typeof meta==="object"&&meta.tone==="muted"?"#8ea2b8":"#9fe0b8",whiteSpace:"nowrap"}},typeof meta==="object"?meta.text:meta):h("span",null)),
         h("div",{style:{color:"#8ea2b8",display:"flex",justifyContent:"center"}},h(Icon,{name:open?"chevronDown":"chevronRight",size:16}))
       )
     ),
@@ -232,11 +236,40 @@ function wifiRows(w){
   if(w.power_save!=null)r.push(["Power saving",w.power_save?"ON":"Off"]);
   return r;
 }
+function timeAgo(ts){
+  const s=Math.max(0,Date.now()/1000-Number(ts||0));
+  if(s<90)return "just now";
+  if(s<3600)return `${Math.round(s/60)} min ago`;
+  if(s<86400)return `${Math.round(s/3600)} h ago`;
+  if(s<172800)return "yesterday";
+  return `${Math.round(s/86400)} days ago`;
+}
+function RecentList({items}){
+  if(!items||!items.length)return null;
+  return h("div",null,
+    h("div",{style:{fontSize:10,fontWeight:800,letterSpacing:.9,textTransform:"uppercase",opacity:.45,margin:"14px 4px 4px"}},"Recent"),
+    h(Card,{style:{padding:0}},items.slice(0,3).map((f,i)=>h("div",{key:f.path,style:{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderTop:i?"1px solid rgba(255,255,255,.06)":"none"}},
+      h("div",{style:{minWidth:0,flex:1}},
+        h("div",{style:{fontSize:12,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},f.name),
+        h("div",{style:{fontSize:10,opacity:.6,marginTop:1}},`Received · ${f.size_human} · ${timeAgo(f.received_at)}`)),
+      h("div",{style:{color:"#3ddc84"}},h(Icon,{name:"check",size:15,strokeWidth:2.4}))))));
+}
+function SubSection({title,children,first=false}){
+  return h("div",{style:{paddingTop:first?0:10,marginTop:first?0:10,borderTop:first?"none":"1px solid rgba(255,255,255,.06)"}},
+    h("div",{style:{fontSize:10,fontWeight:800,letterSpacing:.8,textTransform:"uppercase",opacity:.55,marginBottom:7}},title),children);
+}
+function updateMeta(u){
+  if(!u||!u.ok)return null;
+  if(u.available)return {text:"Update available"};
+  return {text:"Up to date",tone:"muted"};
+}
 function wifiSummary(w){
   if(!w||w.error||w.connected!==true)return null;
   const q=w.signal_dbm!=null?(w.signal_dbm>=-60?"Strong":(w.signal_dbm>=-70?"Good":"Weak")):null;
   return [w.band,q].filter(Boolean).join(" · ")||null;
 }
+function pcAddress(displayUrl){return String(displayUrl||"").replace(/^https?:\/\//,"").replace(/[\/?#].*$/,"")||"…";}
+function pcCode(status){const raw=status&&status.pc_code&&status.pc_code.code?String(status.pc_code.code):"";return raw.length===6?raw.slice(0,3)+" "+raw.slice(3):"··· ···";}
 function pcConnect(displayUrl,status){
   const addr=String(displayUrl||"").replace(/^https?:\/\//,"").replace(/[\/?#].*$/,"");
   const raw=status&&status.pc_code&&status.pc_code.code?String(status.pc_code.code):"";
@@ -285,7 +318,8 @@ function makePanel(){
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
     const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name"),[fmStorage,setFmStorage]=useState(null),[fmSelect,setFmSelect]=useState(false),[fmPicked,setFmPicked]=useState([]),[fmClip,setFmClip]=useState(null),[fmBusy,setFmBusy]=useState(false),[fmNew,setFmNew]=useState(""),[fmRename,setFmRename]=useState(null),[fmRenameValue,setFmRenameValue]=useState(""),[fmInfo,setFmInfo]=useState(null),[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50),[fmMenu,setFmMenu]=useState(false);
-    const [openSections,setOpenSections]=useState({browse:true,received:false,notifications:false,updates:false,support:false,wifi:false});
+    const [openSections,setOpenSections]=useState({browse:false,received:false,updates:false,support:false,wifi:false});
+    const [showQr,setShowQr]=useState(false),[cancelArmed,setCancelArmed]=useState(null);
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
     const firstBrowseItemRef=useRef(null);
@@ -469,9 +503,17 @@ function makePanel(){
     }
 
     useEffect(()=>{bootstrap();},[]);
+    useEffect(()=>{if(!status)return;loadWifi();checkUpdate(false);},[!!status]);
+    async function cancelTransfer(t){
+      if(cancelArmed!==t.id){setCancelArmed(t.id);setTimeout(()=>setCancelArmed(x=>x===t.id?null:x),4000);return;}
+      setCancelArmed(null);
+      try{const r=await call("cancel_transfer",{id:t.id});if(r&&r.ok===false&&r.error)setErr("Cancel: "+r.error);await refreshStatus();}
+      catch(e){setErr("Cancel: "+String(e&&e.message||e));}
+    }
     useEffect(()=>{if(!status)return;const t=setInterval(refreshStatus,path?4000:1500);return()=>clearInterval(t);},[!!status,!!path]);
     useEffect(()=>{if(!path||status&&status.selected)return;const t=setTimeout(()=>{try{if(firstBrowseItemRef.current&&typeof firstBrowseItemRef.current.focus==="function")firstBrowseItemRef.current.focus();}catch(e){}},80);return()=>clearTimeout(t);},[path,items,status&&status.selected]);
 
+    const busy=!!(status&&status.transfers&&status.transfers.some(t=>t.status==="active"));
     const conns=status&&status.addresses||[];
     const activeConn=conns[Math.min(connIndex,Math.max(0,conns.length-1))]||null;
     const displayUrl=activeConn?activeConn.url:status&&status.address||"";
@@ -486,19 +528,23 @@ function makePanel(){
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
       h("style",null,".deckyshare-root .deckyshare-compact-action{min-width:0!important;min-height:26px!important;height:26px!important;padding:2px 5px!important;display:flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;overflow:hidden!important}.deckyshare-root .deckyshare-compact-action>div{min-width:0!important;min-height:0!important;height:100%!important;width:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;text-overflow:ellipsis!important}.deckyshare-root .deckyshare-action:focus{animation:none!important}"),
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"6px 4px 8px"}},h(BrandTile,{size:34}),h("div",{style:{flex:1,minWidth:0}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:19,letterSpacing:-.2}},"DeckyShare"),h("span",{style:{fontSize:9,fontWeight:700,color:"#8ea2b8"}},"RC11.35")),h("div",{style:{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:650,color:status.server_self_test?"#9fe0b8":"#ffb3b3",marginTop:1}},h("span",{style:{width:7,height:7,borderRadius:"50%",background:status.server_self_test?"#3ddc84":"#ff7070"}}),status.server_self_test?"Ready on your network":"Server unavailable"))),
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"6px 4px 2px"}},h(BrandTile,{size:32}),h("div",{style:{flex:1,fontWeight:820,fontSize:19,letterSpacing:-.2}},"DeckyShare"),h("span",{style:{fontSize:10,fontWeight:700,color:"#8ea2b8"}},"RC11.36")),
+      h("div",{style:{display:"flex",alignItems:"center",gap:6,fontSize:11,fontWeight:650,color:status.server_self_test?"#9fe0b8":"#ffb3b3",padding:"2px 4px 4px"}},h("span",{style:{width:7,height:7,borderRadius:"50%",background:status.server_self_test?"#3ddc84":"#ff7070"}}),status.server_self_test?"Ready · same Wi-Fi as your phone":"Server unavailable"),
 
-      h(TransferHero,{transfers:status.transfers}),
-      h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
-        h(SectionTitle,{icon:"scan",title:"Connect",sub:"Phone: scan the QR · Computer: address + code"}),
-        h("div",{style:{display:"flex",gap:10,alignItems:"stretch"}},
-          pcConnect(displayUrl,status),
-          displayQr&&h("div",{style:{width:91,textAlign:"center"}},h("img",{src:displayQr,style:{width:80,height:80,background:"white",padding:4,borderRadius:9}}),h("div",{style:{fontSize:9,opacity:.55,marginTop:2}},"Phone: scan"))
-        ),
+      h(TransferHero,{transfers:status.transfers,onCancel:cancelTransfer,armed:cancelArmed}),
+      busy&&wifi&&wifiSummary(wifi)&&h("div",{style:{display:"flex",alignItems:"center",gap:7,fontSize:11,opacity:.7,padding:"0 6px 2px"}},h(Icon,{name:"wifi",size:13}),`Wi-Fi ${wifiSummary(wifi)}`),
+      (!busy||showQr)&&h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
+        h("div",{style:{display:"flex",gap:12,alignItems:"center"}},
+          displayQr?h("img",{src:displayQr,style:{width:96,height:96,background:"white",padding:5,borderRadius:10,flexShrink:0}}):h("div",{style:{width:96,height:96,borderRadius:10,background:"rgba(255,255,255,.06)",flexShrink:0}}),
+          h("div",{style:{minWidth:0,display:"flex",flexDirection:"column",gap:4}},
+            h("div",{style:{fontSize:14,fontWeight:780}},"Scan to connect"),
+            h("div",{style:{fontSize:10,opacity:.65,lineHeight:1.35}},"Phone: open the camera. Computer: type this in a browser"),
+            h("div",{style:{fontSize:13,fontWeight:800,color:"#79cbff",fontFamily:"monospace",wordBreak:"break-all"}},pcAddress(displayUrl)),
+            h("div",{style:{display:"flex",alignItems:"baseline",gap:6,marginTop:1}},h("span",{style:{fontSize:10,opacity:.65}},"Code"),h("span",{style:{fontSize:17,fontWeight:850,letterSpacing:1.5,fontFamily:"monospace"}},pcCode(status))))),
         conns.length>1&&h("div",{style:{marginTop:9}},h("div",{style:{fontSize:10,opacity:.52,marginBottom:4}},"Network"),conns.map((c,i)=>h(DialogButton,{key:c.ip,onClick:()=>{setConnIndex(i);setCopied(false);},style:{padding:"5px 7px",margin:"2px 3px 2px 0",borderRadius:7,border:i===connIndex?"1px solid #66c0f4":"1px solid rgba(255,255,255,.10)",background:i===connIndex?"rgba(102,192,244,.16)":"transparent",color:"white",fontSize:10}},c.interface)))
       ),
 
-      h(AccordionCard,{icon:"send",title:"Send to phone / PC",sub:status.selected?`Ready: ${status.selected.name}`:(path?(browseCrumbs.map(c=>c.label).join(" › ")||"Current folder"):"Pick a file on the Deck"),open:openSections.browse,onToggle:()=>toggleSection("browse"),style:{border:"1px solid rgba(120,180,255,.19)"}},
+      h(AccordionCard,{icon:"send",primary:true,title:"Send to phone",sub:status.selected?`Ready: ${status.selected.name}`:(path?(browseCrumbs.map(c=>c.label).join(" › ")||"Current folder"):"Pick a file on the Deck"),open:openSections.browse,onToggle:()=>toggleSection("browse"),style:{border:"1px solid rgba(120,180,255,.19)"}},
         !status.selected&&!path&&h("div",null,
           roots.map(r=>h(DialogButton,{key:r.path,onClick:()=>browse(r.path),style:{width:"100%",padding:"9px 10px",margin:"4px 0",borderRadius:11,border:"1px solid rgba(255,255,255,.06)",background:"rgba(255,255,255,.035)",color:"white",textAlign:"left"}},
             h("div",{style:{display:"flex",alignItems:"center",gap:9}},
@@ -559,16 +605,18 @@ function makePanel(){
       ),
 
 
+      busy&&h(DialogButton,{onClick:()=>setShowQr(v=>!v),style:{width:"100%",minHeight:0,margin:"8px 0",padding:"11px 12px",borderRadius:14,border:"1px solid rgba(255,255,255,.07)",background:"rgba(19,28,39,.96)",color:"white",textAlign:"left"}},
+        h("div",{style:{display:"flex",alignItems:"center",gap:9}},h(IconTile,{name:"qr",tone:"gray"}),h("span",{style:{fontWeight:760,fontSize:14}},showQr?"Hide QR code":"Show QR code"))),
+      !busy&&h(RecentList,{items:status.received}),
       h("div",{style:{fontSize:10,fontWeight:800,letterSpacing:.9,textTransform:"uppercase",opacity:.45,margin:"16px 4px 4px"}},"More"),
-      h(AccordionCard,{icon:"wifi",tone:"gray",title:"Wi-Fi",sub:"Band, link speed and signal",meta:wifiSummary(wifi),open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
+      h(AccordionCard,{icon:"wifi",tone:"gray",title:"Wi-Fi",sub:"Band and signal",meta:wifiSummary(wifi),open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
         !wifi?h("div",{style:{opacity:.6,fontSize:12,padding:"4px 0"}},wifiBusy?"Checking…":"Checking Deck Wi-Fi…"):
         wifi.error?h("div",{style:{fontSize:12,color:"#ffb4a8",padding:"4px 0"}},wifi.error):
         h("div",null,
           wifiRows(wifi).map(([k,v])=>h("div",{key:k,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0"}},h("span",{style:{opacity:.62}},k),h("span",{style:{fontWeight:650,textAlign:"right",wordBreak:"break-word"}},v))),
           (wifi.hints||[]).map((t,i)=>h("div",{key:"hint"+i,style:{fontSize:11,lineHeight:1.35,marginTop:6,padding:"6px 8px",borderRadius:8,background:"rgba(102,192,244,.10)",border:"1px solid rgba(102,192,244,.25)"}},t))),
         h("div",{style:{marginTop:8}},h(MiniButton,{onClick:loadWifi,compact:true},wifiBusy?"Checking…":"Refresh"))),
-      h(AccordionCard,{icon:"bell",tone:"gray",title:"Notifications",sub:"Received files and transfer results",open:openSections.notifications,onToggle:()=>toggleSection("notifications")},h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
-      h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:"Verified GitHub releases",open:openSections.updates,onToggle:()=>toggleSection("updates")},
+      h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:"Verified GitHub releases",meta:updateMeta(updateInfo),open:openSections.updates,onToggle:()=>toggleSection("updates")},
         h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:"Installed: v1.1.0-rc.1"),
         updateInfo&&updateInfo.installed_now&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(70,210,125,.10)",border:"1px solid rgba(80,220,140,.18)",fontSize:11,lineHeight:1.45,marginBottom:8}},`✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{fontSize:10,opacity:.68,whiteSpace:"pre-wrap",maxHeight:72,overflow:"hidden",marginTop:6}},updateInfo.notes)),
@@ -582,7 +630,10 @@ function makePanel(){
         ),
         h("div",{style:{fontSize:9,opacity:.42,lineHeight:1.35,marginTop:8}},"Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.")
       ),
-      h(AccordionCard,{icon:"heart",tone:"gray",title:"Support DeckyShare",sub:"Free & open-source community project",open:openSections.support,onToggle:()=>toggleSection("support")},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"Buy me a coffee")),
+      h(AccordionCard,{icon:"settings",tone:"gray",title:"Settings & support",sub:"Notifications and support",open:openSections.support,onToggle:()=>toggleSection("support")},
+        h(SubSection,{title:"Notifications",first:true},h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
+        h(SubSection,{title:"Support DeckyShare"},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"Buy me a coffee"))
+      ),
       err&&h("div",{style:{color:"#ffb3b3",marginTop:8,fontSize:11,wordBreak:"break-word"}},err)
     );
   };

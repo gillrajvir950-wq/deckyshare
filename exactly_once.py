@@ -160,6 +160,15 @@ def _parallel_snapshot(session):
     return done, sum(done)
 
 
+
+def _cancel_reply(handler, session, payload):
+    """Phone-initiated cancels already aborted the request; a cancel pressed on
+    the Deck must be reported as a failure so the browser does not show the
+    file as sent. 410 also stops Fast mode from treating it as a checkpoint."""
+    if session and session.get("deck_cancel"):
+        return handler.send_json(dict(payload, error="Cancelled on Steam Deck"), 410)
+    return handler.send_json(payload)
+
 def _cancel_parallel_session(core, upload_id, session):
     session["cancel_event"].set()
     with core.STATE.lock:
@@ -342,7 +351,7 @@ def _handle_parallel_put(core, handler, q, name, upload_id, offset, total, lengt
         except _UploadCancelled:
             _cancel_parallel_session(core, upload_id, session)
             try:
-                return handler.send_json({"cancelled": True, "received": 0, "upload_id": upload_id})
+                return _cancel_reply(handler, session, {"cancelled": True, "received": 0, "upload_id": upload_id})
             except OSError:
                 return None
         except (BrokenPipeError, ConnectionResetError):
@@ -452,7 +461,7 @@ def _handle_no_resume_put(core, handler, name, upload_id, offset, total, length,
     except _UploadCancelled:
         cleanup("cancelled")
         try:
-            return handler.send_json({"cancelled": True, "received": 0, "upload_id": upload_id})
+            return _cancel_reply(handler, session, {"cancelled": True, "received": 0, "upload_id": upload_id})
         except OSError:
             return None
     except (BrokenPipeError, ConnectionResetError):
@@ -487,6 +496,15 @@ def _install_put(core):
         target = (core.STATE.receive_dir / name).resolve()
         if core.STATE.receive_dir.resolve() not in target.parents:
             return self.send_json({"error": "Bad filename"}, 400)
+
+        if upload_id in getattr(core.STATE, "deck_cancelled_uploads", {}):
+            _drain(self, length)
+            part = upload_part_path(core.STATE.receive_dir, upload_id)
+            try:
+                part.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return self.send_json({"error": "Cancelled on Steam Deck", "cancelled": True}, 410)
 
         _clean_state(core)
         client_key = str(self.client_address[0]) if self.client_address else ""
@@ -655,7 +673,7 @@ def _install_put(core):
                         core.STATE.upload_sessions.pop(upload_id, None)
                 core.STATE.update_transfer(tid, chunk_start, "cancelled")
                 try:
-                    return self.send_json({"cancelled": True, "received": chunk_start, "upload_id": upload_id})
+                    return _cancel_reply(self, session, {"cancelled": True, "received": chunk_start, "upload_id": upload_id})
                 except OSError:
                     return None
             except (BrokenPipeError, ConnectionResetError):

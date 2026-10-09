@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.36
+
+- Deck panel now follows the final mockup: header with "Ready · same Wi-Fi as your phone"; a Connect card with a large QR code, the computer address and code; a highlighted "Send to phone" button; "Received files" with a count; a "Recent" list; and a "More" group with Wi-Fi (band and signal), Updates ("Up to date" / "Update available") and Settings & support (notifications and support together).
+- While a transfer runs, the panel shows the transfer card, the Wi-Fi summary and three buttons (Send to phone, Received files, Show QR code); the Connect card is tucked away until needed.
+- New "Cancel transfer" button on the Deck (press twice to confirm). Works for Maximum Speed, Turbo and Fast uploads and for downloads; the phone shows "Cancelled on Steam Deck" instead of "Sent", partial files are removed, resumable retries of a cancelled upload are refused, and cancelling a download also stops sharing that file so the browser cannot resume it.
+
 ## v1.1.0-rc.11.35
 
 - Redesigned Deck panel: flatter dark look matching the phone page, a new header with connection status, and sections in a clear order — transfer card, Connect, "Send to phone / PC", "Received files" (with a count badge), then a "More" group with Wi-Fi (shows band and signal at a glance), Notifications, Updates and Support.
