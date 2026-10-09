@@ -392,9 +392,25 @@ function makePanel() {
         async function bootstrap() {
             try {
                 setErr("");
-                const b = await withTimeout(call("bootstrap"), 6500, "Backend startup");
-                if (!b || !b.ok)
-                    throw new Error("Backend returned invalid startup data");
+                // Right after an install or update Decky can take a while to start the
+                // Python backend, so retry a few times before showing an error.
+                let b = null, last = null;
+                for (let attempt = 0; attempt < 4 && !b; attempt++) {
+                    try {
+                        b = await withTimeout(call("bootstrap"), 6500 + attempt * 3500, "Backend startup");
+                        if (!b || !b.ok) {
+                            b = null;
+                            throw new Error("Backend returned invalid startup data");
+                        }
+                    }
+                    catch (e) {
+                        last = e;
+                        if (attempt < 3)
+                            await new Promise(r => setTimeout(r, 1500));
+                    }
+                }
+                if (!b)
+                    throw last || new Error("Backend did not start");
                 setStatus(b);
                 setRoots(b.roots || []);
                 setConnIndex(0);
