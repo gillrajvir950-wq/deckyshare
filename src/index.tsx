@@ -608,15 +608,15 @@ function makePanel(){
       busy&&h(DialogButton,{onClick:()=>setShowQr(v=>!v),style:{width:"100%",minHeight:0,margin:"8px 0",padding:"11px 12px",borderRadius:14,border:"1px solid rgba(255,255,255,.07)",background:"rgba(19,28,39,.96)",color:"white",textAlign:"left"}},
         h("div",{style:{display:"flex",alignItems:"center",gap:9}},h(IconTile,{name:"qr",tone:"gray"}),h("span",{style:{fontWeight:760,fontSize:14}},showQr?"Hide QR code":"Show QR code"))),
       !busy&&h(RecentList,{items:status.received}),
-      h("div",{style:{fontSize:10,fontWeight:800,letterSpacing:.9,textTransform:"uppercase",opacity:.45,margin:"16px 4px 4px"}},"More"),
-      h(AccordionCard,{icon:"wifi",tone:"gray",title:"Wi-Fi",sub:"Band and signal",meta:wifiSummary(wifi),open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
+      !busy&&h("div",{style:{fontSize:10,fontWeight:800,letterSpacing:.9,textTransform:"uppercase",opacity:.45,margin:"16px 4px 4px"}},"More"),
+      !busy&&h(AccordionCard,{icon:"wifi",tone:"gray",title:"Wi-Fi",sub:null,meta:wifiSummary(wifi),open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
         !wifi?h("div",{style:{opacity:.6,fontSize:12,padding:"4px 0"}},wifiBusy?"Checking…":"Checking Deck Wi-Fi…"):
         wifi.error?h("div",{style:{fontSize:12,color:"#ffb4a8",padding:"4px 0"}},wifi.error):
         h("div",null,
           wifiRows(wifi).map(([k,v])=>h("div",{key:k,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0"}},h("span",{style:{opacity:.62}},k),h("span",{style:{fontWeight:650,textAlign:"right",wordBreak:"break-word"}},v))),
           (wifi.hints||[]).map((t,i)=>h("div",{key:"hint"+i,style:{fontSize:11,lineHeight:1.35,marginTop:6,padding:"6px 8px",borderRadius:8,background:"rgba(102,192,244,.10)",border:"1px solid rgba(102,192,244,.25)"}},t))),
         h("div",{style:{marginTop:8}},h(MiniButton,{onClick:loadWifi,compact:true},wifiBusy?"Checking…":"Refresh"))),
-      h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:"Verified GitHub releases",meta:updateMeta(updateInfo),open:openSections.updates,onToggle:()=>toggleSection("updates")},
+      !busy&&h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:null,meta:updateMeta(updateInfo),open:openSections.updates,onToggle:()=>toggleSection("updates")},
         h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:"Installed: v1.1.0-rc.1"),
         updateInfo&&updateInfo.installed_now&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(70,210,125,.10)",border:"1px solid rgba(80,220,140,.18)",fontSize:11,lineHeight:1.45,marginBottom:8}},`✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{fontSize:10,opacity:.68,whiteSpace:"pre-wrap",maxHeight:72,overflow:"hidden",marginTop:6}},updateInfo.notes)),
@@ -630,7 +630,7 @@ function makePanel(){
         ),
         h("div",{style:{fontSize:9,opacity:.42,lineHeight:1.35,marginTop:8}},"Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.")
       ),
-      h(AccordionCard,{icon:"settings",tone:"gray",title:"Settings & support",sub:"Notifications and support",open:openSections.support,onToggle:()=>toggleSection("support")},
+      !busy&&h(AccordionCard,{icon:"settings",tone:"gray",title:"Settings & support",sub:null,open:openSections.support,onToggle:()=>toggleSection("support")},
         h(SubSection,{title:"Notifications",first:true},h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
         h(SubSection,{title:"Support DeckyShare"},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"Buy me a coffee"))
       ),
