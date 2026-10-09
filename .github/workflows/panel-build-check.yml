@@ -1,8 +1,9 @@
 name: Panel build check
 
-# Builds the Deck panel (dist/index.js) from src/index.tsx and reports whether
-# the result matches the committed dist. The comparison is published as a run
-# annotation so it can be read without downloading logs. Nothing is committed.
+# Builds the Deck panel (dist/index.js) from src/index.tsx, reports how the
+# result differs from the committed dist (as run annotations, readable without
+# downloading logs) and, on release branches, commits the freshly built dist so
+# the branch always carries a real build of its source.
 
 on:
   push:
@@ -19,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -76,3 +77,17 @@ jobs:
               lines = ["%s committed[%s] built[%s]" % (o[0], " ".join(a[o[1]:o[2]])[:160], " ".join(b[o[3]:o[4]])[:160]) for o in ops[:40]]
               print("::warning title=panel-build-tokens::%d token-level differences%%0A" % len(ops) + esc("\n".join(lines)))
           PY
+
+      - name: Commit built dist to the branch
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: |
+          if git diff --quiet -- dist; then
+            echo "::notice title=panel-build-commit::dist already matches src"
+            exit 0
+          fi
+          git config user.name "deckyshare-build[bot]"
+          git config user.email "deckyshare-build@users.noreply.github.com"
+          git add dist/index.js dist/index.js.map
+          git commit -m "Build Deck panel from src [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "::notice title=panel-build-commit::committed $(git rev-parse --short HEAD)"

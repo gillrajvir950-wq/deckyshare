@@ -45,6 +45,19 @@ jobs:
           python -m pip install -q pytest
           python -m pytest -q tests
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Deck panel from src
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
       - name: Check frontend bundle syntax
         run: node --check dist/index.js
 
