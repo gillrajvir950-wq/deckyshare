@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.0-rc.11.35
+
+- Redesigned Deck panel: flatter dark look matching the phone page, a new header with connection status, and sections in a clear order — transfer card, Connect, "Send to phone / PC", "Received files" (with a count badge), then a "More" group with Wi-Fi (shows band and signal at a glance), Notifications, Updates and Support.
+- New icons: all emoji were replaced with one consistent set of line icons (sections, folders, file types), and a new DeckyShare logo in the header and the Decky sidebar.
+- All features are unchanged: file browser and file manager, received files, Wi-Fi details, notifications, updates and controller navigation.
+
 ## v1.1.0-rc.11.34
 
 - Deck panel: an active transfer now appears as a large card at the very top of the panel with the percentage, size, live speed and time left. A stalled transfer turns the card amber with a hint. The old "Live Transfers" section further down is gone.

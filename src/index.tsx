@@ -94,17 +94,49 @@ function dirname(p){
   const i=p.lastIndexOf("/");
   return i>0?p.slice(0,i):"/";
 }
-function browseFileIcon(item){
-  if(item&&item.type==="dir")return "📁";
-  const name=String(item&&item.name||"").toLowerCase();
-  if(/\.(jpg|jpeg|png|gif)$/.test(name))return "🖼️";
-  if(/\.(mp4|mkv|mov|avi|webm|m4v)$/.test(name))return "🎬";
-  if(/\.(zip|7z|rar)$/.test(name))return "🗜️";
-  if(/\.iso$/.test(name))return "💿";
-  if(/\.pdf$/.test(name))return "📕";
-  if(/\.txt$/.test(name))return "📝";
-  return "📄";
+const ICON_PATHS={
+  swap:["M7 7h11l-3-3","M17 17H6l3 3"],
+  scan:["M4 8V5a1 1 0 0 1 1-1h3","M16 4h3a1 1 0 0 1 1 1v3","M20 16v3a1 1 0 0 1-1 1h-3","M8 20H5a1 1 0 0 1-1-1v-3","M8 12h8"],
+  send:["M12 15V4","M7 9l5-5 5 5","M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"],
+  inbox:["M12 4v11","M7 10l5 5 5-5","M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"],
+  wifi:["M2 8.5a15 15 0 0 1 20 0","M5 12a10.5 10.5 0 0 1 14 0","M8.5 15.5a5.5 5.5 0 0 1 7 0","M12 19h.01"],
+  bell:["M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9","M10.3 21a1.94 1.94 0 0 0 3.4 0"],
+  update:["M21 12a9 9 0 1 1-3-6.7L21 8","M21 3v5h-5"],
+  heart:["M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"],
+  folder:["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
+  home:["M3 11l9-8 9 8","M5 10v10h14V10"],
+  drive:["M6 3h9l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z","M9 7v3","M12 7v3","M15 7v3"],
+  image:["M4 5h16v14H4z","M4 16l5-5 4 4 3-3 4 4","M15.5 8.5h.01"],
+  video:["M3 6h12v12H3z","M15 10l6-3v10l-6-3"],
+  archive:["M4 4h16v4H4z","M5 8v12h14V8","M10 12h4"],
+  disc:["M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18","M12 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4"],
+  doc:["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M14 3v5h5"],
+  text:["M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z","M14 3v5h5","M9 13h6","M9 17h4"],
+  monitor:["M3 4h18v12H3z","M8 20h8","M12 16v4"],
+  chevronRight:["M9 6l6 6-6 6"],
+  chevronDown:["M6 9l6 6 6-6"]
+};
+function Icon({name,size=18,color="currentColor",strokeWidth=2}){
+  const paths=ICON_PATHS[name]||ICON_PATHS.doc;
+  return h("svg",{viewBox:"0 0 24 24",width:size,height:size,fill:"none",stroke:color,strokeWidth,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true",style:{display:"block",flexShrink:0}},
+    paths.map((d,i)=>h("path",{key:i,d})));
 }
+function IconTile({name,size=30,tone="blue"}){
+  const tones={blue:["rgba(26,159,255,.14)","#7cc4ff"],green:["rgba(61,220,132,.13)","#7fe3ad"],amber:["rgba(255,180,84,.14)","#ffc979"],pink:["rgba(255,120,160,.14)","#ff9dbb"],gray:["rgba(255,255,255,.07)","#c9d6e3"]};
+  const [bg,fg]=tones[tone]||tones.blue;
+  return h("div",{style:{width:size,height:size,borderRadius:Math.round(size*.3),background:bg,color:fg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},h(Icon,{name,size:Math.round(size*.58)}));
+}
+function browseFileIconName(item){
+  if(item&&item.type==="dir")return "folder";
+  const name=String(item&&item.name||"").toLowerCase();
+  if(/\.(jpg|jpeg|png|gif|webp|heic)$/.test(name))return "image";
+  if(/\.(mp4|mkv|mov|avi|webm|m4v|m2ts|ts)$/.test(name))return "video";
+  if(/\.(zip|7z|rar)$/.test(name))return "archive";
+  if(/\.iso$/.test(name))return "disc";
+  if(/\.txt$/.test(name))return "text";
+  return "doc";
+}
+function browseFileIcon(item,size=15){return h(Icon,{name:browseFileIconName(item),size});}
 function browseDate(ts){
   const n=Number(ts||0);
   if(!Number.isFinite(n)||n<=0)return "";
@@ -172,18 +204,19 @@ function TransferHero({transfers}){
 }
 function Bar({value}){return h("div",{style:{height:8,borderRadius:6,background:"rgba(255,255,255,.12)",overflow:"hidden",marginTop:7}},h("div",{style:{height:"100%",width:`${Math.max(0,Math.min(100,value||0))}%`,background:"#66c0f4"}}));}
 function Btn({children,onClick,disabled=false}){return h(DialogButton,{disabled,onClick,style:{width:"100%",padding:"11px 12px",margin:"5px 0",borderRadius:11,border:"1px solid rgba(130,190,255,.20)",background:disabled?"rgba(255,255,255,.05)":"rgba(34,67,106,.72)",color:"white",fontSize:13,textAlign:"left"}},children);}
-function Card({children,style={}}){return h("div",{style:{background:"linear-gradient(180deg,rgba(22,42,68,.92),rgba(15,29,49,.92))",border:"1px solid rgba(120,180,255,.16)",borderRadius:15,padding:13,margin:"10px 0",boxShadow:"0 5px 18px rgba(0,0,0,.12)",...style}},children);}
-function SectionTitle({icon,title,sub}){return h("div",{style:{display:"flex",gap:9,alignItems:"center",marginBottom:9}},h("div",{style:{fontSize:21}},icon),h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:760,fontSize:15}},title),sub&&h("div",{style:{fontSize:11,opacity:.62,marginTop:1,lineHeight:1.3}},sub)));}
-function AccordionCard({icon,title,sub,open,onToggle,children,style={}}){
+function Card({children,style={}}){return h("div",{style:{background:"rgba(19,28,39,.96)",border:"1px solid rgba(255,255,255,.07)",borderRadius:14,padding:12,margin:"8px 0",...style}},children);}
+function SectionTitle({icon,title,sub,tone="blue"}){return h("div",{style:{display:"flex",gap:10,alignItems:"center",marginBottom:10}},typeof icon==="string"?h(IconTile,{name:icon,tone}):icon,h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:780,fontSize:14}},title),sub&&h("div",{style:{fontSize:10,opacity:.6,marginTop:1,lineHeight:1.3}},sub)));}
+function AccordionCard({icon,title,sub,open,onToggle,children,style={},tone="blue",meta=null,badge=null}){
   return h(Card,{style},
-    h(DialogButton,{onClick:onToggle,"aria-expanded":!!open,style:{width:"100%",minHeight:0,padding:"2px 1px 7px",margin:0,border:0,background:"transparent",color:"white",textAlign:"left"}},
-      h("div",{style:{display:"grid",gridTemplateColumns:"28px minmax(0,1fr) 22px",gap:7,alignItems:"center"}},
-        h("div",{style:{fontSize:20,textAlign:"center"}},icon),
+    h(DialogButton,{onClick:onToggle,"aria-expanded":!!open,style:{width:"100%",minHeight:0,padding:"1px",margin:0,border:0,background:"transparent",color:"white",textAlign:"left"}},
+      h("div",{style:{display:"grid",gridTemplateColumns:"30px minmax(0,1fr) auto 18px",gap:9,alignItems:"center"}},
+        typeof icon==="string"?h(IconTile,{name:icon,tone}):icon,
         h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:760,fontSize:14}},title),sub&&h("div",{style:{fontSize:10,opacity:.58,marginTop:1,lineHeight:1.25,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},sub)),
-        h("div",{style:{fontSize:16,fontWeight:800,textAlign:"center",color:"#9fdcff"}},open?"▼":"▶")
+        badge!=null?h("span",{style:{fontSize:10,fontWeight:800,color:"#06121f",background:"#c9d6e3",borderRadius:999,padding:"1px 7px"}},badge):(meta?h("span",{style:{fontSize:10,fontWeight:700,color:"#9fe0b8",whiteSpace:"nowrap"}},meta):h("span",null)),
+        h("div",{style:{color:"#8ea2b8",display:"flex",justifyContent:"center"}},h(Icon,{name:open?"chevronDown":"chevronRight",size:16}))
       )
     ),
-    open&&h("div",{style:{paddingTop:5}},children)
+    open&&h("div",{style:{paddingTop:9}},children)
   );
 }
 function wifiRows(w){
@@ -198,6 +231,11 @@ function wifiRows(w){
   if(w.signal_dbm!=null)r.push(["Signal",`${w.signal_dbm} dBm`]);else if(w.signal_pct!=null)r.push(["Signal",`${w.signal_pct}%`]);
   if(w.power_save!=null)r.push(["Power saving",w.power_save?"ON":"Off"]);
   return r;
+}
+function wifiSummary(w){
+  if(!w||w.error||w.connected!==true)return null;
+  const q=w.signal_dbm!=null?(w.signal_dbm>=-60?"Strong":(w.signal_dbm>=-70?"Good":"Weak")):null;
+  return [w.band,q].filter(Boolean).join(" · ")||null;
 }
 function pcConnect(displayUrl,status){
   const addr=String(displayUrl||"").replace(/^https?:\/\//,"").replace(/[\/?#].*$/,"");
@@ -218,16 +256,16 @@ function MiniButton({children,onClick,tone="normal",compact=false}){
 }
 
 function DeckyShareBrandIcon({size=24}){
-  return h("svg",{viewBox:"0 0 24 24",width:size,height:size,fill:"none",stroke:"currentColor",strokeWidth:2.05,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true",style:{display:"block",color:"currentColor",flexShrink:0}},
-    h("rect",{x:"3.5",y:"5.5",width:"5",height:"13",rx:"1.4"}),
-    h("rect",{x:"15.5",y:"5.5",width:"5",height:"13",rx:"1.4"}),
-    h("path",{d:"M9.7 9h4.5"}),
-    h("path",{d:"m12.6 7.4 1.6 1.6-1.6 1.6"}),
-    h("path",{d:"M14.3 15H9.8"}),
-    h("path",{d:"m11.4 13.4-1.6 1.6 1.6 1.6"}),
-    h("path",{d:"M5.5 16.2h1"}),
-    h("path",{d:"M17.5 16.2h1"})
+  return h("svg",{viewBox:"0 0 24 24",width:size,height:size,fill:"none",stroke:"currentColor",strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true",style:{display:"block",color:"currentColor",flexShrink:0}},
+    h("rect",{x:"2.5",y:"2.5",width:"19",height:"19",rx:"5.5"}),
+    h("path",{d:"M7.5 9.5h9l-2.6-2.6"}),
+    h("path",{d:"M16.5 14.5h-9l2.6 2.6"})
   );
+}
+function BrandTile({size=34}){
+  return h("div",{style:{width:size,height:size,borderRadius:Math.round(size*.3),background:"#1a9fff",color:"#06121f",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+    h("svg",{viewBox:"0 0 24 24",width:Math.round(size*.62),height:Math.round(size*.62),fill:"none",stroke:"currentColor",strokeWidth:2.6,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true"},
+      h("path",{d:"M5 8.5h12.5l-3.2-3.2"}),h("path",{d:"M19 15.5H6.5l3.2 3.2"})));
 }
 
 function connectDeckyBackend(){
@@ -448,12 +486,11 @@ function makePanel(){
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
       h("style",null,".deckyshare-root .deckyshare-compact-action{min-width:0!important;min-height:26px!important;height:26px!important;padding:2px 5px!important;display:flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;overflow:hidden!important}.deckyshare-root .deckyshare-compact-action>div{min-width:0!important;min-height:0!important;height:100%!important;width:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;text-overflow:ellipsis!important}.deckyshare-root .deckyshare-action:focus{animation:none!important}"),
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"8px 4px 12px"}},h(DeckyShareBrandIcon,{size:31}),h("div",{style:{flex:1}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:20,letterSpacing:.1}},"DeckyShare"),h("span",{style:{fontSize:8,fontWeight:800,padding:"1px 5px",borderRadius:999,background:"rgba(80,160,255,.16)",border:"1px solid rgba(100,180,255,.24)",color:"#9fd4ff"}},"RC11.34")),h("div",{style:{fontSize:11,color:"#9fc7ff",opacity:.88}},"Share files with your Steam Deck"))),
+      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"6px 4px 8px"}},h(BrandTile,{size:34}),h("div",{style:{flex:1,minWidth:0}},h("div",{style:{display:"flex",gap:7,alignItems:"center"}},h("div",{style:{fontWeight:820,fontSize:19,letterSpacing:-.2}},"DeckyShare"),h("span",{style:{fontSize:9,fontWeight:700,color:"#8ea2b8"}},"RC11.35")),h("div",{style:{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:650,color:status.server_self_test?"#9fe0b8":"#ffb3b3",marginTop:1}},h("span",{style:{width:7,height:7,borderRadius:"50%",background:status.server_self_test?"#3ddc84":"#ff7070"}}),status.server_self_test?"Ready on your network":"Server unavailable"))),
 
       h(TransferHero,{transfers:status.transfers}),
       h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
-        h(SectionTitle,{icon:"📡",title:"Connect",sub:"Phone: scan the QR · Computer: address + code"}),
-        h("div",{style:{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:999,background:status.server_self_test?"rgba(56,232,121,.10)":"rgba(255,112,112,.10)",color:status.server_self_test?"#8ef6aa":"#ffb3b3",fontSize:11,fontWeight:700,marginBottom:10}},status.server_self_test?"● Ready to connect":"● Server unavailable"),
+        h(SectionTitle,{icon:"scan",title:"Connect",sub:"Phone: scan the QR · Computer: address + code"}),
         h("div",{style:{display:"flex",gap:10,alignItems:"stretch"}},
           pcConnect(displayUrl,status),
           displayQr&&h("div",{style:{width:91,textAlign:"center"}},h("img",{src:displayQr,style:{width:80,height:80,background:"white",padding:4,borderRadius:9}}),h("div",{style:{fontSize:9,opacity:.55,marginTop:2}},"Phone: scan"))
@@ -461,11 +498,11 @@ function makePanel(){
         conns.length>1&&h("div",{style:{marginTop:9}},h("div",{style:{fontSize:10,opacity:.52,marginBottom:4}},"Network"),conns.map((c,i)=>h(DialogButton,{key:c.ip,onClick:()=>{setConnIndex(i);setCopied(false);},style:{padding:"5px 7px",margin:"2px 3px 2px 0",borderRadius:7,border:i===connIndex?"1px solid #66c0f4":"1px solid rgba(255,255,255,.10)",background:i===connIndex?"rgba(102,192,244,.16)":"transparent",color:"white",fontSize:10}},c.interface)))
       ),
 
-      h(AccordionCard,{icon:"📁",title:"Browse Files",sub:path?(browseCrumbs.map(c=>c.label).join(" › ")||"Current folder"):"Choose a location",open:openSections.browse,onToggle:()=>toggleSection("browse"),style:{border:"1px solid rgba(120,180,255,.19)"}},
+      h(AccordionCard,{icon:"send",title:"Send to phone / PC",sub:status.selected?`Ready: ${status.selected.name}`:(path?(browseCrumbs.map(c=>c.label).join(" › ")||"Current folder"):"Pick a file on the Deck"),open:openSections.browse,onToggle:()=>toggleSection("browse"),style:{border:"1px solid rgba(120,180,255,.19)"}},
         !status.selected&&!path&&h("div",null,
-          roots.map(r=>h(DialogButton,{key:r.path,onClick:()=>browse(r.path),style:{width:"100%",padding:"9px 10px",margin:"4px 0",borderRadius:11,border:"1px solid rgba(120,180,255,.12)",background:"rgba(20,39,63,.50)",color:"white",textAlign:"left"}},
+          roots.map(r=>h(DialogButton,{key:r.path,onClick:()=>browse(r.path),style:{width:"100%",padding:"9px 10px",margin:"4px 0",borderRadius:11,border:"1px solid rgba(255,255,255,.06)",background:"rgba(255,255,255,.035)",color:"white",textAlign:"left"}},
             h("div",{style:{display:"flex",alignItems:"center",gap:9}},
-              h("div",{style:{width:32,height:32,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(102,192,244,.10)",fontSize:16}},r.name.startsWith("Drive:")?"💾":"📂"),
+              h("div",{style:{width:32,height:32,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(26,159,255,.12)",color:"#7cc4ff"}},h(Icon,{name:r.name.startsWith("Drive:")?"drive":(/^home$/i.test(r.name)?"home":(/video/i.test(r.name)?"video":(/download/i.test(r.name)?"inbox":(/desktop/i.test(r.name)?"monitor":"folder")))),size:17})),
               h("div",{style:{minWidth:0,flex:1,fontWeight:730,fontSize:11,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},r.name),
               h("div",{style:{fontSize:15,opacity:.34}},"›")
             )
@@ -473,7 +510,7 @@ function makePanel(){
         ),
         status.selected?h("div",{style:{padding:10,borderRadius:11,background:"rgba(73,151,220,.10)",border:"1px solid rgba(100,175,240,.16)"}},
           h("div",{style:{display:"flex",gap:9,alignItems:"center"}},
-            h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(102,192,244,.10)",fontSize:18}},browseFileIcon(status.selected)),
+            h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(102,192,244,.10)",color:"#7cc4ff"}},browseFileIcon(status.selected,18)),
             h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:750,wordBreak:"break-word"}},status.selected.name),h("div",{style:{fontSize:11,opacity:.6,marginTop:2}},status.selected.size_human))
           ),
           h(Btn,{onClick:clearSelection},"Choose another file")
@@ -482,7 +519,7 @@ function makePanel(){
           fmNew&&h("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:6,marginBottom:7}},h(TextField,{value:fmNew==="New folder"?"":fmNew,onChange:e=>setFmNew(e.target.value),placeholder:"Folder name",style:{minWidth:0,padding:"8px",borderRadius:8,background:"#0c1a2b",color:"white",border:"1px solid rgba(120,180,255,.18)"}}),h(MiniButton,{onClick:fmMkdir},"Create")),
           fmClip&&h("div",{style:{padding:7,borderRadius:9,marginBottom:7,background:"rgba(255,190,75,.08)",border:"1px solid rgba(255,190,75,.20)"}},h("div",{style:{fontSize:10,marginBottom:5}},`${fmClip.mode==="move"?"Move":"Copy"} ${fmClip.paths.length} item(s) here?`),h("div",{style:{display:"flex",gap:5}},h(MiniButton,{onClick:fmPaste},"Paste here"),h(MiniButton,{onClick:()=>setFmClip(null)},"Cancel"))),
           fmRename&&h("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:6,marginBottom:7}},h(TextField,{value:fmRenameValue,onChange:e=>setFmRenameValue(e.target.value),style:{minWidth:0,padding:"8px",borderRadius:8,background:"#0c1a2b",color:"white",border:"1px solid rgba(120,180,255,.18)"}}),h(MiniButton,{onClick:fmDoRename},"Rename")),
-          fmInfo&&h("div",{style:{padding:8,borderRadius:9,marginBottom:7,background:"rgba(255,255,255,.025)",border:"1px solid rgba(120,180,255,.12)",fontSize:9}},h("div",{style:{fontWeight:760,fontSize:11}},`${browseFileIcon(fmInfo)} ${fmInfo.name}`),h("div",{style:{opacity:.55,wordBreak:"break-all",marginTop:3}},fmInfo.path),h("div",{style:{opacity:.55,marginTop:2}},fmInfo.type==="dir"?`Folder${fmInfo.item_count!=null?` • ${fmInfo.item_count} item(s)`:""}`:`${fmInfo.size_human}${fmInfo.mime?` • ${fmInfo.mime}`:""}`)),
+          fmInfo&&h("div",{style:{padding:8,borderRadius:9,marginBottom:7,background:"rgba(255,255,255,.025)",border:"1px solid rgba(120,180,255,.12)",fontSize:9}},h("div",{style:{fontWeight:760,fontSize:11}},fmInfo.name),h("div",{style:{opacity:.55,wordBreak:"break-all",marginTop:3}},fmInfo.path),h("div",{style:{opacity:.55,marginTop:2}},fmInfo.type==="dir"?`Folder${fmInfo.item_count!=null?` • ${fmInfo.item_count} item(s)`:""}`:`${fmInfo.size_human}${fmInfo.mime?` • ${fmInfo.mime}`:""}`)),
           h("div",{style:{display:"grid",gridTemplateColumns:"32px minmax(0,1fr)",gap:6,alignItems:"center",marginBottom:5}},
             h(DialogButton,{className:"deckyshare-compact-action",onClick:navigateBack,style:{width:32,height:26,minWidth:32,minHeight:26,padding:0,margin:0,borderRadius:7,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#d9edff",fontSize:15,fontWeight:800}},"←"),
             h("div",{title:path,style:{minWidth:0,height:26,boxSizing:"border-box",padding:"6px 8px",borderRadius:7,background:"rgba(38,68,101,.34)",border:"1px solid rgba(120,180,255,.14)",color:"#dceeff",fontSize:9,fontWeight:680,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},browseCrumbs.map(c=>c.label).join(" › ")||path)
@@ -500,7 +537,7 @@ function makePanel(){
           h("div",{style:{fontSize:9,opacity:.42,margin:"4px 1px 7px"}},`${visibleBrowseItems.length} item${visibleBrowseItems.length===1?"":"s"}${browseQuery?` matching “${browseQuery}”`:""}`),
           !visibleBrowseItems.length?h("div",{style:{padding:"15px 8px",textAlign:"center",fontSize:11,opacity:.5,border:"1px dashed rgba(120,180,255,.14)",borderRadius:10}},browseQuery?"No matching items in this folder":"This folder is empty"):visibleBrowseItems.slice(0,browseLimit).map((it,index)=>h(DialogButton,{key:it.path,ref:index===0?firstBrowseItemRef:null,onClick:()=>fmSelect?fmToggle(it):(it.type==="dir"?browse(it.path):selectFile(it.path)),onFocus:e=>{e.currentTarget.style.borderColor="#66c0f4";e.currentTarget.style.background="rgba(35,72,108,.68)";},onBlur:e=>{const picked=fmPicked.includes(it.path);e.currentTarget.style.borderColor=picked?"#66c0f4":"rgba(120,180,255,.11)";e.currentTarget.style.background=picked?"rgba(48,92,132,.68)":"rgba(20,39,63,.46)";},style:{width:"100%",padding:"5px 7px",margin:"2px 0",borderRadius:9,border:fmPicked.includes(it.path)?"1px solid #66c0f4":"1px solid rgba(120,180,255,.11)",background:fmPicked.includes(it.path)?"rgba(48,92,132,.68)":"rgba(20,39,63,.46)",boxShadow:fmPicked.includes(it.path)?"inset 3px 0 0 #66c0f4":"none",color:"white",textAlign:"left",transition:"background .12s ease,border-color .12s ease"}},
             h("div",{style:{display:"grid",gridTemplateColumns:"26px minmax(0,1fr) 18px",gap:7,alignItems:"center"}},
-              h("div",{style:{width:26,height:26,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:it.type==="dir"?"rgba(102,192,244,.09)":"rgba(255,255,255,.04)",fontSize:14,flexShrink:0}},browseFileIcon(it)),
+              h("div",{style:{width:26,height:26,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:it.type==="dir"?"rgba(102,192,244,.09)":"rgba(255,255,255,.04)",color:it.type==="dir"?"#7cc4ff":"#b8c7d6",flexShrink:0}},browseFileIcon(it,14)),
               h("div",{style:{minWidth:0}},
                 h("div",{style:{fontWeight:720,fontSize:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},it.name),
                 h("div",{style:{fontSize:9,opacity:.46,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},browseDate(it.mtime)||(it.type==="dir"?"Folder":""))
@@ -513,24 +550,25 @@ function makePanel(){
         )
       ),
 
-      h(AccordionCard,{icon:"📥",title:"Received Files",sub:"Recent files sent from phone / PC",open:openSections.received,onToggle:()=>toggleSection("received")},
-        (!status.received||!status.received.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(28,54,87,.62)",border:"1px solid rgba(120,180,255,.12)",borderRadius:12,padding:10,margin:"7px 0"}},
-          h("div",{style:{display:"flex",gap:9,alignItems:"center"}},h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(120,77,255,.16)",fontSize:19}},"📦"),h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:740,wordBreak:"break-word"}},f.name),h("div",{style:{fontSize:10,opacity:.54,marginTop:2}},f.size_human))),
+      h(AccordionCard,{icon:"inbox",tone:"green",title:"Received files",sub:"Saved in Downloads/DeckShare",badge:status.received&&status.received.length?status.received.length:null,open:openSections.received,onToggle:()=>toggleSection("received")},
+        (!status.received||!status.received.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:12,padding:10,margin:"7px 0"}},
+          h("div",{style:{display:"flex",gap:9,alignItems:"center"}},h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(26,159,255,.12)",color:"#7cc4ff"}},browseFileIcon(f,18)),h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:740,wordBreak:"break-word"}},f.name),h("div",{style:{fontSize:10,opacity:.54,marginTop:2}},f.size_human))),
           h("div",{style:{fontSize:9,opacity:.42,marginTop:6,wordBreak:"break-all"}},f.path),
           h("div",{style:{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}},h(MiniButton,{onClick:()=>showReceivedFolder(f.path)},"Show folder"),h(MiniButton,{onClick:()=>copyText(f.path,"Path")},copiedPath===f.path?"✓ Copied":"Copy path"),h(MiniButton,{onClick:()=>deleteReceived(f.path),tone:"danger"},deleteArmed===f.path?"Tap again":"Delete"))
         ))
       ),
 
 
-      h(AccordionCard,{icon:"📶",title:"Wi-Fi Check",sub:"Deck band, link speed and signal",open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
+      h("div",{style:{fontSize:10,fontWeight:800,letterSpacing:.9,textTransform:"uppercase",opacity:.45,margin:"16px 4px 4px"}},"More"),
+      h(AccordionCard,{icon:"wifi",tone:"gray",title:"Wi-Fi",sub:"Band, link speed and signal",meta:wifiSummary(wifi),open:openSections.wifi,onToggle:()=>{const opening=!openSections.wifi;toggleSection("wifi");if(opening)loadWifi();}},
         !wifi?h("div",{style:{opacity:.6,fontSize:12,padding:"4px 0"}},wifiBusy?"Checking…":"Checking Deck Wi-Fi…"):
         wifi.error?h("div",{style:{fontSize:12,color:"#ffb4a8",padding:"4px 0"}},wifi.error):
         h("div",null,
           wifiRows(wifi).map(([k,v])=>h("div",{key:k,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0"}},h("span",{style:{opacity:.62}},k),h("span",{style:{fontWeight:650,textAlign:"right",wordBreak:"break-word"}},v))),
           (wifi.hints||[]).map((t,i)=>h("div",{key:"hint"+i,style:{fontSize:11,lineHeight:1.35,marginTop:6,padding:"6px 8px",borderRadius:8,background:"rgba(102,192,244,.10)",border:"1px solid rgba(102,192,244,.25)"}},t))),
         h("div",{style:{marginTop:8}},h(MiniButton,{onClick:loadWifi,compact:true},wifiBusy?"Checking…":"Refresh"))),
-      h(AccordionCard,{icon:"🔔",title:"Notifications",sub:"Received files and transfer results",open:openSections.notifications,onToggle:()=>toggleSection("notifications"),style:{border:"1px solid rgba(120,180,255,.18)"}},h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
-      h(AccordionCard,{icon:"⬆️",title:"Updates",sub:"Verified GitHub releases",open:openSections.updates,onToggle:()=>toggleSection("updates"),style:{border:"1px solid rgba(96,211,152,.22)"}},
+      h(AccordionCard,{icon:"bell",tone:"gray",title:"Notifications",sub:"Received files and transfer results",open:openSections.notifications,onToggle:()=>toggleSection("notifications")},h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
+      h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:"Verified GitHub releases",open:openSections.updates,onToggle:()=>toggleSection("updates")},
         h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:"Installed: v1.1.0-rc.1"),
         updateInfo&&updateInfo.installed_now&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(70,210,125,.10)",border:"1px solid rgba(80,220,140,.18)",fontSize:11,lineHeight:1.45,marginBottom:8}},`✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{fontSize:10,opacity:.68,whiteSpace:"pre-wrap",maxHeight:72,overflow:"hidden",marginTop:6}},updateInfo.notes)),
@@ -544,7 +582,7 @@ function makePanel(){
         ),
         h("div",{style:{fontSize:9,opacity:.42,lineHeight:1.35,marginTop:8}},"Updates use Decky Loader’s native installer. GitHub SHA-256 is verified and Decky asks before replacing the plugin.")
       ),
-      h(AccordionCard,{icon:"☕",title:"Support DeckyShare",sub:"Free & open-source community project",open:openSections.support,onToggle:()=>toggleSection("support"),style:{border:"1px solid rgba(255,190,75,.18)"}},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"☕ Buy me a coffee")),
+      h(AccordionCard,{icon:"heart",tone:"gray",title:"Support DeckyShare",sub:"Free & open-source community project",open:openSections.support,onToggle:()=>toggleSection("support")},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"Buy me a coffee")),
       err&&h("div",{style:{color:"#ffb3b3",marginTop:8,fontSize:11,wordBreak:"break-word"}},err)
     );
   };
