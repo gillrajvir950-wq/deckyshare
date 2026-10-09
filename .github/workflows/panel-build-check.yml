@@ -67,4 +67,12 @@ jobs:
               head = "\n".join(l[:300] for l in diff[:120])
               print("::warning title=panel-build::DIFFERENT committed=%d built=%d changed_lines=%d" % (len(committed), len(built), changed))
               print("::warning title=panel-build-diff::" + esc(head))
+              # Token-level comparison ignores pure formatting differences.
+              import re
+              tok = lambda ls: re.findall(r"[A-Za-z_$][\w$]*|\d+\.?\d*|\.\d+|\S", "\n".join(ls))
+              a, b = tok(committed), tok(built)
+              sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+              ops = [o for o in sm.get_opcodes() if o[0] != "equal"]
+              lines = ["%s committed[%s] built[%s]" % (o[0], " ".join(a[o[1]:o[2]])[:160], " ".join(b[o[3]:o[4]])[:160]) for o in ops[:40]]
+              print("::warning title=panel-build-tokens::%d token-level differences%%0A" % len(ops) + esc("\n".join(lines)))
           PY
