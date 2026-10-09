@@ -36,8 +36,27 @@ jobs:
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Run tests
-        run: python3 -m pip install -q pytest && python3 -m pytest -q tests
+        run: |
+          python -m pip install -q pytest
+          python -m pytest -q tests
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Deck panel from src
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
 
       - name: Check frontend bundle syntax
         run: node --check dist/index.js
@@ -90,6 +109,9 @@ jobs:
           else
             TARGET="--verify-tag"
           fi
-          gh release create "${TAG}" "DeckyShare-v${VERSION}.zip" \
+          # Stable name for README links (releases/latest/download/DeckyShare.zip).
+          # The updater picks the versioned ZIP by exact name, so this copy is ignored there.
+          cp "DeckyShare-v${VERSION}.zip" DeckyShare.zip
+          gh release create "${TAG}" "DeckyShare-v${VERSION}.zip" DeckyShare.zip \
             --title "DeckyShare v${VERSION}" --notes-file notes.md \
             ${TARGET} ${PRE}

@@ -10,6 +10,7 @@
       "transfer",
       "network"
     ],
-    "description": "DeckyShare: wireless two-way file transfer between Steam Deck and phone/PC."
+    "description": "Wireless two-way file transfer between Steam Deck and phone/PC.",
+    "image": "https://raw.githubusercontent.com/gillrajvir950-wq/deckyshare/main/ScreenShots/Screenshot%202026-09-13%20at%2011.03.53.png"
   }
 }

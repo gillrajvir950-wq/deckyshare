@@ -1,0 +1,93 @@
+name: Panel build check
+
+# Builds the Deck panel (dist/index.js) from src/index.tsx, reports how the
+# result differs from the committed dist (as run annotations, readable without
+# downloading logs) and, on release branches, commits the freshly built dist so
+# the branch always carries a real build of its source.
+
+on:
+  push:
+    branches:
+      - "v*-release"
+    paths:
+      - "src/**"
+      - "dist/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "rollup.config.js"
+      - "tsconfig.json"
+      - ".github/workflows/panel-build-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build from src
+        run: |
+          cp dist/index.js /tmp/committed-index.js
+          pnpm build
+          node --check dist/index.js
+
+      - name: Compare with committed dist
+        run: |
+          python3 - <<'PY'
+          import difflib, hashlib
+
+          def load(path):
+              lines = open(path, encoding="utf-8").read().splitlines()
+              return [l for l in lines if not l.startswith("//# sourceMappingURL")]
+
+          committed = load("/tmp/committed-index.js")
+          built = load("dist/index.js")
+
+          def esc(text):
+              return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          if committed == built:
+              print("::notice title=panel-build::IDENTICAL (%d lines)" % len(built))
+          else:
+              diff = list(difflib.unified_diff(committed, built, "committed", "built", n=1, lineterm=""))
+              changed = sum(1 for l in diff if l[:1] in "+-" and not l.startswith(("+++", "---")))
+              head = "\n".join(l[:300] for l in diff[:120])
+              print("::warning title=panel-build::DIFFERENT committed=%d built=%d changed_lines=%d" % (len(committed), len(built), changed))
+              print("::warning title=panel-build-diff::" + esc(head))
+              # Token-level comparison ignores pure formatting differences.
+              import re
+              tok = lambda ls: re.findall(r"[A-Za-z_$][\w$]*|\d+\.?\d*|\.\d+|\S", "\n".join(ls))
+              a, b = tok(committed), tok(built)
+              sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+              ops = [o for o in sm.get_opcodes() if o[0] != "equal"]
+              lines = ["%s committed[%s] built[%s]" % (o[0], " ".join(a[o[1]:o[2]])[:160], " ".join(b[o[3]:o[4]])[:160]) for o in ops[:40]]
+              print("::warning title=panel-build-tokens::%d token-level differences%%0A" % len(ops) + esc("\n".join(lines)))
+          PY
+
+      - name: Commit built dist to the branch
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: |
+          if git diff --quiet -- dist; then
+            echo "::notice title=panel-build-commit::dist already matches src"
+            exit 0
+          fi
+          git config user.name "deckyshare-build[bot]"
+          git config user.email "deckyshare-build@users.noreply.github.com"
+          git add dist/index.js dist/index.js.map
+          git commit -m "Build Deck panel from src [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "::notice title=panel-build-commit::committed $(git rev-parse --short HEAD)"

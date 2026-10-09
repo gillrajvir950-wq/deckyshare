@@ -1,0 +1,80 @@
+name: Clean up old releases
+
+# Deletes pre-releases (release candidates) and draft releases, keeping every
+# stable release. Runs as a dry run (list only) unless "confirm" is DELETE.
+# Refuses to delete anything until a stable release newer than every
+# pre-release exists, so RC users always have an update to move to.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DELETE to really delete. Leave empty for a dry run that only lists."
+        required: false
+        default: ""
+      delete_tags:
+        description: "Also delete the git tags of deleted releases"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean up
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CONFIRM: ${{ inputs.confirm }}
+          DELETE_TAGS: ${{ inputs.delete_tags }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+
+          repo = os.environ["REPO"]
+          really = os.environ.get("CONFIRM", "").strip() == "DELETE"
+          delete_tags = os.environ.get("DELETE_TAGS", "true") == "true"
+
+          def gh(*args):
+              return subprocess.run(["gh", "api", *args], check=True, capture_output=True, text=True).stdout
+
+          releases = []
+          for page in json.loads(gh("--paginate", "--slurp", f"repos/{repo}/releases?per_page=100")):
+              releases.extend(page)
+
+          def key(tag):
+              m = re.match(r"v?(\d+)\.(\d+)\.(\d+)(?:-(.*))?$", tag or "")
+              if not m:
+                  return None
+              nums = tuple(int(x) for x in m.group(1, 2, 3))
+              pre = m.group(4)
+              pre_key = (1,) if pre is None else (0,) + tuple(int(p) if p.isdigit() else p for p in re.split(r"[.-]", pre))
+              return nums + pre_key
+
+          stable = [r for r in releases if not r["prerelease"] and not r["draft"] and key(r["tag_name"])]
+          doomed = [r for r in releases if r["prerelease"] or r["draft"]]
+          newest_stable = max(stable, key=lambda r: key(r["tag_name"]), default=None)
+          newest_pre = max((r for r in doomed if key(r["tag_name"])), key=lambda r: key(r["tag_name"]), default=None)
+
+          if newest_pre and (not newest_stable or key(newest_stable["tag_name"]) < key(newest_pre["tag_name"])):
+              print(f"::error title=cleanup::Publish a stable release newer than {newest_pre['tag_name']} first, so RC users can update.")
+              raise SystemExit(1)
+
+          names = ", ".join(r["tag_name"] + (" (draft)" if r["draft"] else "") for r in doomed)
+          keep = ", ".join(r["tag_name"] for r in stable)
+          print(f"::notice title=cleanup-plan::{'Deleting' if really else 'DRY RUN, would delete'} {len(doomed)} releases: {names or 'none'}. Keeping: {keep}")
+          if not really:
+              raise SystemExit(0)
+
+          for r in doomed:
+              gh("-X", "DELETE", f"repos/{repo}/releases/{r['id']}")
+              if delete_tags and not r["draft"]:
+                  try:
+                      gh("-X", "DELETE", f"repos/{repo}/git/refs/tags/{r['tag_name']}")
+                  except subprocess.CalledProcessError:
+                      pass
+          print(f"::notice title=cleanup-done::Deleted {len(doomed)} releases.")
+          PY

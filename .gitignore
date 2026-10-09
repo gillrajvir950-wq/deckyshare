@@ -4,3 +4,5 @@ __pycache__/
 .DS_Store
 *.log
 *.deckshare-part
+release/
+rc11.5.zip
