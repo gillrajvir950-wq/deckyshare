@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.1
+
+- The Deck panel now retries for up to ~30 seconds while Decky starts the backend after an install or update, instead of showing "Backend startup timed out" right away.
+
 ## v1.1.0
 
 First stable release since v1.0.0. Everything from the 1.1.0 release candidates, summarised:

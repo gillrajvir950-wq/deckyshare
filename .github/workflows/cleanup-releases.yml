@@ -63,18 +63,30 @@ jobs:
               print(f"::error title=cleanup::Publish a stable release newer than {newest_pre['tag_name']} first, so RC users can update.")
               raise SystemExit(1)
 
+          # Pre-release tags left without a release (for example from deleted drafts).
+          tags = []
+          for page in json.loads(gh("--paginate", "--slurp", f"repos/{repo}/tags?per_page=100")):
+              tags.extend(t["name"] for t in page)
+          kept_tags = {r["tag_name"] for r in releases if not (r["prerelease"] or r["draft"])}
+          stray = [t for t in tags if t not in kept_tags and key(t) and key(t)[3] == 0
+                   and newest_stable and key(t) < key(newest_stable["tag_name"])]
+
           names = ", ".join(r["tag_name"] + (" (draft)" if r["draft"] else "") for r in doomed)
           keep = ", ".join(r["tag_name"] for r in stable)
-          print(f"::notice title=cleanup-plan::{'Deleting' if really else 'DRY RUN, would delete'} {len(doomed)} releases: {names or 'none'}. Keeping: {keep}")
+          verb = "Deleting" if really else "DRY RUN, would delete"
+          print(f"::notice title=cleanup-plan::{verb} {len(doomed)} releases: {names or 'none'}. Keeping: {keep}")
+          if delete_tags:
+              print(f"::notice title=cleanup-tags::{verb} {len(stray)} pre-release tags: {', '.join(stray) or 'none'}")
           if not really:
               raise SystemExit(0)
 
           for r in doomed:
               gh("-X", "DELETE", f"repos/{repo}/releases/{r['id']}")
-              if delete_tags and not r["draft"]:
+          if delete_tags:
+              for t in stray:
                   try:
-                      gh("-X", "DELETE", f"repos/{repo}/git/refs/tags/{r['tag_name']}")
+                      gh("-X", "DELETE", f"repos/{repo}/git/refs/tags/{t}")
                   except subprocess.CalledProcessError:
                       pass
-          print(f"::notice title=cleanup-done::Deleted {len(doomed)} releases.")
+          print(f"::notice title=cleanup-done::Deleted {len(doomed)} releases and {len(stray) if delete_tags else 0} tags.")
           PY
