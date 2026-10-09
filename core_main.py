@@ -154,6 +154,92 @@ def connection_options():
     return out
 
 
+# ------------------------------------------------------------ sender devices
+# Which kind of device sent each received file ("iPhone", "Mac", ...), taken
+# from the uploading request's User-Agent. Kept in the plugin's settings folder
+# (never in the user's Downloads) so the Recent list survives a reload.
+_REQUEST_LOCAL = threading.local()
+
+
+def device_from_user_agent(ua):
+    ua = str(ua or "")
+    low = ua.lower()
+    if "iphone" in low or "shortcuts" in low or "backgroundshortcutrunner" in low:
+        return "iPhone"
+    if "ipad" in low:
+        return "iPad"
+    if "android" in low or "okhttp" in low or "dalvik" in low:
+        return "Android"
+    if "cros" in low:
+        return "Chromebook"
+    if "macintosh" in low or "mac os x" in low:
+        return "Mac"
+    if "windows" in low:
+        return "Windows PC"
+    if "steamdeck" in low or "steamos" in low:
+        return "Steam Deck"
+    if "linux" in low:
+        return "Linux PC"
+    return None
+
+
+def current_sender():
+    return getattr(_REQUEST_LOCAL, "sender", None)
+
+
+def with_sender(handler_method):
+    def wrapper(self):
+        _REQUEST_LOCAL.sender = device_from_user_agent(self.headers.get("User-Agent", "") if getattr(self, "headers", None) else "")
+        try:
+            return handler_method(self)
+        finally:
+            _REQUEST_LOCAL.sender = None
+    wrapper.__name__ = getattr(handler_method, "__name__", "wrapper")
+    return wrapper
+
+
+class SenderLog:
+    LIMIT = 200
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.items = {}
+        self.path = None
+        settings = getattr(decky, "DECKY_PLUGIN_SETTINGS_DIR", None)
+        if settings:
+            self.path = Path(settings) / "received_from.json"
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    self.items = {str(k): str(v) for k, v in data.items() if v}
+            except Exception:
+                self.items = {}
+
+    def get(self, name):
+        with self.lock:
+            return self.items.get(name)
+
+    def remember(self, name, device):
+        if not device:
+            return
+        with self.lock:
+            self.items.pop(name, None)
+            self.items[name] = device
+            while len(self.items) > self.LIMIT:
+                self.items.pop(next(iter(self.items)))
+            if self.path:
+                try:
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    tmp = self.path.with_suffix(".tmp")
+                    tmp.write_text(json.dumps(self.items), encoding="utf-8")
+                    os.replace(tmp, self.path)
+                except OSError:
+                    pass
+
+
+SENDERS = SenderLog()
+
+
 class State:
     def __init__(self):
         self.lock = threading.RLock()
@@ -213,6 +299,7 @@ class State:
     def record_received(self, path):
         try:
             p = Path(path).resolve()
+            SENDERS.remember(p.name, current_sender())
             st = p.stat()
             item = {"name": p.name, "path": str(p), "size": st.st_size, "size_human": human_size(st.st_size), "received_at": time.time()}
             with self.lock:
@@ -228,7 +315,8 @@ class State:
         try:
             disk = []
             for p in self.receive_dir.iterdir():
-                if not p.is_file() or p.name.endswith(".deckshare-part"):
+                # Hidden files include in-progress ".deckyshare-*.part" uploads.
+                if not p.is_file() or p.name.startswith(".") or p.name.endswith(".deckshare-part"):
                     continue
                 try:
                     st = p.stat()
@@ -238,6 +326,7 @@ class State:
                         "size": st.st_size,
                         "size_human": human_size(st.st_size),
                         "received_at": st.st_mtime,
+                        "from": SENDERS.get(p.name),
                     })
                 except OSError:
                     continue
@@ -456,6 +545,14 @@ def cancel_transfer_by_id(tid):
         session["cancel_event"].set()
     STATE.update_transfer(tid, status="cancelled")
     return {"ok": True, "cancelled": t.get("name")}
+
+
+def plugin_version():
+    try:
+        data = json.loads((Path(__file__).resolve().parent / "package.json").read_text(encoding="utf-8"))
+        return str(data.get("version") or "")
+    except Exception:
+        return ""
 
 
 def short_address():
@@ -1121,6 +1218,7 @@ class Plugin:
             "qr_data": preferred.get("qr_data"),
             "addresses": options,
             "short_address": short_address(),
+            "version": plugin_version(),
             "pc_code": browser_pair_info(),
             "server_self_test": server_self_test(STATE.port),
             "listen": f"0.0.0.0:{STATE.port}",
@@ -1141,6 +1239,7 @@ class Plugin:
             "address": preferred["url"],
             "addresses": options,
             "short_address": short_address(),
+            "version": plugin_version(),
             "pc_code": browser_pair_info(),
             "server_self_test": server_self_test(STATE.port),
             "listen": f"0.0.0.0:{STATE.port}",

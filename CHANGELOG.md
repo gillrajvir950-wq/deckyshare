@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.1.0
+
+First stable release since v1.0.0. Everything from the 1.1.0 release candidates, summarised:
+
+### Security
+- Access now requires the session token from the QR code, or a one-time 6-digit code for computers (expires after 10 minutes, rate limited). v1.0.0 accepted anyone on the same network: please upgrade.
+- Decky-only endpoints accept local requests only; uploads are verified and written to temporary files first.
+
+### Connecting
+- Phone: scan the QR code. Computer: open the short address (for example `192.168.8.131:8787`) and type the code shown on the Deck.
+
+### Transfers
+- Maximum Speed (single stream) plus resumable Turbo (3 parallel streams) and Fast modes, with pause, resume and cancel.
+- Live speed and time left, and a "stalled" warning when no data arrives. Short phone pauses (up to 5 minutes) no longer kill a transfer.
+- Cancel transfers from the Deck panel as well as from the phone/computer.
+- Re-sending a file you deleted keeps its original name (no more "name (1)").
+- Files received are listed with the sending device ("From iPhone", "From Mac", ...).
+
+### Steam Deck panel
+- Redesigned panel: transfer card at the top, QR + computer code, Send to phone, Received files, Recent, and a More group with Wi-Fi, Updates and Settings & support. New icon set and logo.
+- Controller-friendly file manager: browse, copy, move, rename, new folder, move to trash.
+- Wi-Fi check showing band, link speed, signal and power saving, with hints when Wi-Fi limits speed.
+- Built-in updater that installs verified GitHub releases through Decky.
+
+### Phone / computer page
+- Redesigned page with Send to Deck / Get from Deck tabs, a file list you can edit, drag and drop on computers, and a large progress card.
+
+### Project
+- The Deck panel is built from source in CI; releases are built, tested and verified automatically.
+- Optional self-hosted custom Decky store (`store/`).
+
 ## v1.1.0-rc.11.36
 
 - Deck panel now follows the final mockup: header with "Ready · same Wi-Fi as your phone"; a Connect card with a large QR code, the computer address and code; a highlighted "Send to phone" button; "Received files" with a count; a "Recent" list; and a "More" group with Wi-Fi (band and signal), Updates ("Up to date" / "Update available") and Settings & support (notifications and support together).

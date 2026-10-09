@@ -251,7 +251,7 @@ function RecentList({items}){
     h(Card,{style:{padding:0}},items.slice(0,3).map((f,i)=>h("div",{key:f.path,style:{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderTop:i?"1px solid rgba(255,255,255,.06)":"none"}},
       h("div",{style:{minWidth:0,flex:1}},
         h("div",{style:{fontSize:12,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},f.name),
-        h("div",{style:{fontSize:10,opacity:.6,marginTop:1}},`Received · ${f.size_human} · ${timeAgo(f.received_at)}`)),
+        h("div",{style:{fontSize:10,opacity:.6,marginTop:1}},`${f.from?`From ${f.from}`:"Received"} · ${f.size_human} · ${timeAgo(f.received_at)}`)),
       h("div",{style:{color:"#3ddc84"}},h(Icon,{name:"check",size:15,strokeWidth:2.4}))))));
 }
 function SubSection({title,children,first=false}){
@@ -528,19 +528,21 @@ function makePanel(){
 
     return h(Focusable,{onCancel:handleControllerBack,className:"deckyshare-root",style:{padding:"4px 8px 18px",fontSize:14,color:"white"}},
       h("style",null,".deckyshare-root .deckyshare-compact-action{min-width:0!important;min-height:26px!important;height:26px!important;padding:2px 5px!important;display:flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap!important;overflow:hidden!important}.deckyshare-root .deckyshare-compact-action>div{min-width:0!important;min-height:0!important;height:100%!important;width:100%!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;text-overflow:ellipsis!important}.deckyshare-root .deckyshare-action:focus{animation:none!important}"),
-      h("div",{style:{display:"flex",alignItems:"center",gap:10,padding:"6px 4px 2px"}},h(BrandTile,{size:32}),h("div",{style:{flex:1,fontWeight:820,fontSize:19,letterSpacing:-.2}},"DeckyShare"),h("span",{style:{fontSize:10,fontWeight:700,color:"#8ea2b8"}},"RC11.36")),
-      h("div",{style:{display:"flex",alignItems:"center",gap:6,fontSize:11,fontWeight:650,color:status.server_self_test?"#9fe0b8":"#ffb3b3",padding:"2px 4px 4px"}},h("span",{style:{width:7,height:7,borderRadius:"50%",background:status.server_self_test?"#3ddc84":"#ff7070"}}),status.server_self_test?"Ready · same Wi-Fi as your phone":"Server unavailable"),
+      h("div",{style:{display:"flex",alignItems:"center",gap:6,fontSize:11,fontWeight:650,color:status.server_self_test?"#9fe0b8":"#ffb3b3",padding:"2px 4px 4px"}},h("span",{style:{width:7,height:7,borderRadius:"50%",background:status.server_self_test?"#3ddc84":"#ff7070",flexShrink:0}}),h("span",{style:{flex:1}},status.server_self_test?"Ready · same Wi-Fi as your phone":"Server unavailable"),h("span",{style:{fontSize:10,fontWeight:700,color:"#8ea2b8"}},status.version?`v${status.version}`:"")),
 
       h(TransferHero,{transfers:status.transfers,onCancel:cancelTransfer,armed:cancelArmed}),
       busy&&wifi&&wifiSummary(wifi)&&h("div",{style:{display:"flex",alignItems:"center",gap:7,fontSize:11,opacity:.7,padding:"0 6px 2px"}},h(Icon,{name:"wifi",size:13}),`Wi-Fi ${wifiSummary(wifi)}`),
       (!busy||showQr)&&h(Card,{style:{border:"1px solid rgba(66,153,255,.28)"}},
         h("div",{style:{display:"flex",gap:12,alignItems:"center"}},
-          displayQr?h("img",{src:displayQr,style:{width:96,height:96,background:"white",padding:5,borderRadius:10,flexShrink:0}}):h("div",{style:{width:96,height:96,borderRadius:10,background:"rgba(255,255,255,.06)",flexShrink:0}}),
+          displayQr?h("img",{src:displayQr,style:{width:88,height:88,background:"white",padding:5,borderRadius:10,flexShrink:0}}):h("div",{style:{width:88,height:88,borderRadius:10,background:"rgba(255,255,255,.06)",flexShrink:0}}),
           h("div",{style:{minWidth:0,display:"flex",flexDirection:"column",gap:4}},
             h("div",{style:{fontSize:14,fontWeight:780}},"Scan to connect"),
-            h("div",{style:{fontSize:10,opacity:.65,lineHeight:1.35}},"Phone: open the camera. Computer: type this in a browser"),
-            h("div",{style:{fontSize:13,fontWeight:800,color:"#79cbff",fontFamily:"monospace",wordBreak:"break-all"}},pcAddress(displayUrl)),
-            h("div",{style:{display:"flex",alignItems:"baseline",gap:6,marginTop:1}},h("span",{style:{fontSize:10,opacity:.65}},"Code"),h("span",{style:{fontSize:17,fontWeight:850,letterSpacing:1.5,fontFamily:"monospace"}},pcCode(status))))),
+            h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},"Open the camera on your phone and point it at the code."))),
+        h("div",{style:{marginTop:10,paddingTop:9,borderTop:"1px solid rgba(255,255,255,.07)"}},
+          h("div",{style:{fontSize:10,opacity:.6,marginBottom:4}},"On a computer, open this in a browser and enter the code"),
+          h("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:8}},
+            h("span",{style:{fontSize:13,fontWeight:800,color:"#79cbff",fontFamily:"monospace",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",minWidth:0}},pcAddress(displayUrl)),
+            h("span",{style:{fontSize:16,fontWeight:850,letterSpacing:1.2,fontFamily:"monospace",whiteSpace:"nowrap"}},pcCode(status)))),
         conns.length>1&&h("div",{style:{marginTop:9}},h("div",{style:{fontSize:10,opacity:.52,marginBottom:4}},"Network"),conns.map((c,i)=>h(DialogButton,{key:c.ip,onClick:()=>{setConnIndex(i);setCopied(false);},style:{padding:"5px 7px",margin:"2px 3px 2px 0",borderRadius:7,border:i===connIndex?"1px solid #66c0f4":"1px solid rgba(255,255,255,.10)",background:i===connIndex?"rgba(102,192,244,.16)":"transparent",color:"white",fontSize:10}},c.interface)))
       ),
 
@@ -617,7 +619,7 @@ function makePanel(){
           (wifi.hints||[]).map((t,i)=>h("div",{key:"hint"+i,style:{fontSize:11,lineHeight:1.35,marginTop:6,padding:"6px 8px",borderRadius:8,background:"rgba(102,192,244,.10)",border:"1px solid rgba(102,192,244,.25)"}},t))),
         h("div",{style:{marginTop:8}},h(MiniButton,{onClick:loadWifi,compact:true},wifiBusy?"Checking…":"Refresh"))),
       !busy&&h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:null,meta:updateMeta(updateInfo),open:openSections.updates,onToggle:()=>toggleSection("updates")},
-        h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:"Installed: v1.1.0-rc.1"),
+        h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:(status.version?`Installed: v${status.version}`:"")),
         updateInfo&&updateInfo.installed_now&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(70,210,125,.10)",border:"1px solid rgba(80,220,140,.18)",fontSize:11,lineHeight:1.45,marginBottom:8}},`✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{fontSize:10,opacity:.68,whiteSpace:"pre-wrap",maxHeight:72,overflow:"hidden",marginTop:6}},updateInfo.notes)),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.same&&h("div",{style:{fontSize:11,opacity:.68,marginBottom:8}},`✓ You're on the latest stable release (v${updateInfo.latest}).`),
@@ -651,7 +653,7 @@ export default function(){
   }catch(e){console.error("[DeckyShare] global receive notifications unavailable",e);}
   return {
     name:"DeckyShare",
-    titleView:h("div",{style:{fontWeight:700}},"DeckyShare"),
+    titleView:h("div",{style:{display:"flex",alignItems:"center",gap:8,fontWeight:700}},h(BrandTile,{size:24}),"DeckyShare"),
     content:h(Panel),
     icon:h(DeckyShareBrandIcon,{size:22}),
     onDismount(){

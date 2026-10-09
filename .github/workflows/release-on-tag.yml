@@ -109,6 +109,9 @@ jobs:
           else
             TARGET="--verify-tag"
           fi
-          gh release create "${TAG}" "DeckyShare-v${VERSION}.zip" \
+          # Stable name for README links (releases/latest/download/DeckyShare.zip).
+          # The updater picks the versioned ZIP by exact name, so this copy is ignored there.
+          cp "DeckyShare-v${VERSION}.zip" DeckyShare.zip
+          gh release create "${TAG}" "DeckyShare-v${VERSION}.zip" DeckyShare.zip \
             --title "DeckyShare v${VERSION}" --notes-file notes.md \
             ${TARGET} ${PRE}

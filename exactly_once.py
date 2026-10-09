@@ -877,5 +877,6 @@ def install(core):
     _install_get(core)
     _install_post(core)
     core.html_page = _wrap_html_page(core.html_page)
-    core.Handler.do_PUT = _with_transfer_timeout(core.Handler.do_PUT)
+    core.Handler.do_PUT = core.with_sender(_with_transfer_timeout(core.Handler.do_PUT))
+    core.Handler.do_POST = core.with_sender(core.Handler.do_POST)
     core.Handler.do_GET = _with_transfer_timeout(core.Handler.do_GET, _is_download)

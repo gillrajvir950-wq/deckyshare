@@ -1,1 +1,0 @@
-RC8 pairing work starts from the RC7 release line.
