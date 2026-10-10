@@ -42,7 +42,7 @@ function TextField(props){
   const [focused,setFocused]=useState(false);
   const elRef=useRef(null),propsRef=useRef(props);
   propsRef.current=props;
-  const {style,onFocus,onBlur,className,value,uncontrolled,inputRef,...rest}=props||{};
+  const {style,onFocus,onBlur,className,value,uncontrolled,inputRef,debugLog,...rest}=props||{};
   function bind(el){
     if(!el||elRef.current===el||typeof el.addEventListener!=="function")return;
     elRef.current=el;
@@ -54,6 +54,14 @@ function TextField(props){
     };
     ["input","change","keyup","compositionend"].forEach(t=>el.addEventListener(t,sync));
     el.addEventListener("paste",()=>setTimeout(sync,0));
+    if(typeof propsRef.current.debugLog==="function"){
+      const log=(...a)=>{try{propsRef.current.debugLog(a.join(" "));}catch(e){}};
+      el.addEventListener("keydown",e=>log("keydown",JSON.stringify(e.key),e.ctrlKey?"ctrl":"","len",el.value.length));
+      el.addEventListener("beforeinput",e=>log("beforeinput",e.inputType,"data",e.data==null?"-":String(e.data).length));
+      el.addEventListener("input",e=>log("input",e.inputType||"-","len",el.value.length));
+      el.addEventListener("paste",e=>{let n="?";try{n=String(e.clipboardData&&e.clipboardData.getData("text").length);}catch(_e){}log("paste clip",n);setTimeout(()=>log("after paste len",el.value.length),50);});
+      let last=el.value;setInterval(()=>{if(el.value!==last){log("value now len",el.value.length,"(was",last.length+")");last=el.value;}},250);
+    }
   }
   const fieldProps={...rest,className:`deckyshare-text-field${className?` ${className}`:""}`,style:{...style,...(focused?CONTROLLER_FOCUS_STYLE:{})},
     onFocus:e=>{bind(e&&e.target);setFocused(true);if(typeof onFocus==="function")onFocus(e);},
@@ -375,6 +383,8 @@ function makePanel(){
     const clipJobRef=useRef(null);
     const [pasteHint,setPasteHint]=useState(null);
     const composeRef=useRef(null);
+    const [typingLocal,setTypingLocal]=useState(false),[inputLog,setInputLog]=useState([]);
+    const logInput=line=>setInputLog(v=>[...v.slice(-7),line]);
     const [shots,setShots]=useState(null),[shotThumbs,setShotThumbs]=useState({}),[shotPicked,setShotPicked]=useState([]),[shotLimit,setShotLimit]=useState(12),[shotBusy,setShotBusy]=useState(false);
     const [textDraft,setTextDraft]=useState(""),[textBusy,setTextBusy]=useState(false),[textLimit,setTextLimit]=useState(4),[clearArmed,setClearArmed]=useState(false);
     const lastReceivedRef=useRef(null);
@@ -641,6 +651,21 @@ function makePanel(){
       try{await call("clear_texts");setStatus(x=>({...x,texts:[]}));}catch(e){setErr("Text: "+String(e&&e.message||e));}
     }
     async function typeOnDeck(t){
+      if(typingLocal)return;
+      const steamSend=(()=>{try{const sc=window.SteamClient;return sc&&sc.Input&&typeof sc.Input.ControllerKeyboardSendText==="function"?sc.Input.ControllerKeyboardSendText.bind(sc.Input):null;}catch(e){return null;}})();
+      const closeMenu=()=>{try{const nav=DeckyUI.Router||DeckyUI.Navigation;if(nav&&typeof nav.CloseSideMenus==="function")nav.CloseSideMenus();}catch(e){}};
+      if(steamSend){
+        // Steam's own keyboard input: types into whatever has focus, games included.
+        setTypingLocal(true);
+        try{
+          closeMenu();
+          await new Promise(r=>setTimeout(r,600));
+          for(const ch of Array.from(String(t.text))){steamSend(ch);await new Promise(r=>setTimeout(r,6));}
+        }catch(e){setErr("Type: "+String(e&&e.message||e));}
+        finally{setTypingLocal(false);}
+        return;
+      }
+      // Older Steam: fall back to a temporary virtual keyboard on the Deck.
       const job=status&&status.typing;
       if(job&&(job.state==="waiting"||job.state==="typing"))return;
       try{
@@ -648,8 +673,7 @@ function makePanel(){
         if(!r||!r.ok)throw new Error(r&&r.error||"Could not type");
         setStatus(x=>({...x,typing:r.typing}));
         if(r.typing&&r.typing.skipped)toast(backendAPI,`${r.typing.skipped} special character(s) can't be typed and will be skipped`);
-        // Close the menu so the text goes into the box you selected before.
-        try{if(DeckyUI.Navigation&&typeof DeckyUI.Navigation.CloseSideMenus==="function")DeckyUI.Navigation.CloseSideMenus();}catch(e){}
+        closeMenu();
       }catch(e){setErr("Type: "+String(e&&e.message||e));}
     }
     async function copyClipboardItem(t){
@@ -822,8 +846,9 @@ function makePanel(){
 
       h(AccordionCard,{icon:"clipboard",tone:"amber",title:"Clipboard",sub:"Copy and paste between phone and Deck",badge:status.texts&&status.texts.length?status.texts.length:null,open:openSections.texts,onToggle:()=>toggleSection("texts")},
         h("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 64px",gap:6,alignItems:"center"}},
-          h(TextField,{uncontrolled:true,inputRef:composeRef,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
+          h(TextField,{uncontrolled:true,inputRef:composeRef,debugLog:String(status.version||"").includes("-rc")?logInput:undefined,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
           h(MiniButton,{block:true,onClick:sendText},textBusy?"…":"Send")),
+        String(status.version||"").includes("-rc")&&inputLog.length>0&&h("div",{style:{margin:"6px 0 2px",padding:"5px 7px",borderRadius:7,background:"rgba(0,0,0,.35)",fontFamily:"monospace",fontSize:8.5,lineHeight:1.35,color:"#c9d6e3"}},h("div",{style:{opacity:.6,marginBottom:2}},"Paste test (test builds only)"),inputLog.map((l,i)=>h("div",{key:i},l))),
         h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"Copy, then tap Paste on the Steam keyboard in any text box. On your phone, use the Text tab."),
         (!status.texts||!status.texts.length)?h("div",{style:{opacity:.5,fontSize:11,padding:"8px 0 2px"}},"Nothing shared yet"):
         h("div",null,
@@ -831,7 +856,7 @@ function makePanel(){
             h("div",{style:{fontSize:11,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:"5.6em",overflow:"hidden",color:t.link?"#9ed6ff":"white"}},t.text),
             h("div",{style:{fontSize:9,opacity:.5,marginTop:4}},`${t.from==="Deck"?"From this Deck":`From ${t.from}`} · ${timeAgo(t.at)}`),
             h(Focusable,{"flow-children":"horizontal",style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:5,marginTop:7}},
-              h(MiniButton,{compact:true,block:true,onClick:()=>typeOnDeck(t)},status.typing&&status.typing.state==="waiting"?"Get ready…":(status.typing&&status.typing.state==="typing"?`Typing ${status.typing.done}/${status.typing.total}`:"Type on Deck")),
+              h(MiniButton,{compact:true,block:true,onClick:()=>typeOnDeck(t)},typingLocal?"Typing…":status.typing&&status.typing.state==="waiting"?"Get ready…":(status.typing&&status.typing.state==="typing"?`Typing ${status.typing.done}/${status.typing.total}`:"Type on Deck")),
               h(MiniButton,{compact:true,block:true,onClick:()=>copyClipboardItem(t)},copiedPath===t.text?"✓ Copied":"Copy")),
             h(Focusable,{"flow-children":"horizontal",style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:5,marginTop:5}},
               t.link&&h(MiniButton,{compact:true,block:true,onClick:()=>openLink(t.text)},"Open link"),

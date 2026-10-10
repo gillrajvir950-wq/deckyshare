@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.0-rc.7
+
+- **Type on Deck** now uses Steam's own keyboard input (the same way other Decky plugins type text), so it needs no special permissions and works in games and Steam alike. The virtual keyboard is only a fallback for older Steam versions.
+- Test builds only: a small "Paste test" log under the Clipboard text box shows what the Steam keyboard's Paste key does, to find why a single tap does not paste there.
+
 ## v1.3.0-rc.6
 
 - Fixed: a single tap on **Paste** on the Steam keyboard did not paste into DeckyShare's text boxes (only press-and-hold worked). The keyboard changes the box directly and the panel used to put the old text back a moment later. Text boxes now keep whatever the keyboard puts in them.
