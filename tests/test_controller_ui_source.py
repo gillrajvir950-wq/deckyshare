@@ -25,8 +25,10 @@ def test_compact_toolbar_and_single_focus_ring():
     assert "shared.noFocusRing=true" in source
     assert "shared.noFocusRing=false" not in source
     assert "shared.onGamepadFocus" not in source
-    assert 'boxShadow:"inset 3px 0 0 #66c0f4"' in source
-    assert 'filter:"none"' in source
+    # v1.3: cards light up as a whole (no inner box inside the card).
+    assert "CARD_FOCUS_STYLE" in source
+    assert "plainFocus:true" in source
+    assert 'boxShadow:"inset 3px 0 0 #66c0f4"' not in source
     assert 'transform:"none"' in source
     assert 'className:"deckyshare-compact-action"' in source
     assert '"⋯"' not in source

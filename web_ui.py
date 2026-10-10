@@ -22,7 +22,7 @@ header{display:flex;align-items:center;gap:10px;padding-top:4px}
 .status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#9fe0b8}
 .status i{width:7px;height:7px;border-radius:50%;background:var(--good)}
 .status.off{color:#ffd08a}.status.off i{background:var(--warn)}
-.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:4px;background:var(--card);border:1px solid var(--line);border-radius:14px}
+.tabs{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,.75fr);gap:4px;padding:4px;background:var(--card);border:1px solid var(--line);border-radius:14px}
 .tab{min-height:46px;border:0;border-radius:10px;background:transparent;color:#c9d6e3;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px}
 .tab[aria-selected=true]{background:var(--accent);color:var(--accent-ink);font-weight:800}
 .badge{font-size:11px;font-weight:800;color:var(--accent-ink);background:var(--warn);border-radius:999px;padding:1px 7px}
@@ -90,6 +90,20 @@ header{display:flex;align-items:center;gap:10px;padding-top:4px}
 .file-icon{width:46px;height:46px;flex:none;border-radius:12px;background:#1d2b3b;display:flex;align-items:center;justify-content:center}
 .empty{background:var(--card);border:1px dashed var(--line2);border-radius:16px;padding:22px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.5}
 .empty b{display:block;color:var(--text);font-size:16px;margin-bottom:4px}
+@media (max-width:380px){.tab{font-size:13px;gap:5px}}
+.compose{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.compose textarea{width:100%;min-height:92px;resize:vertical;border:1px solid var(--line2);border-radius:12px;background:#0d151e;color:var(--text);font:inherit;font-size:16px;line-height:1.4;padding:10px 12px}
+.compose textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+.compose-row{display:flex;gap:10px}.compose-row .primary{flex:1;min-height:50px;font-size:16px}.compose-row .secondary{padding:0 18px}
+.titem{padding:12px 14px;border-top:1px solid #1d2835;display:flex;flex-direction:column;gap:8px}
+.titem:first-child{border-top:0}
+.ttext{font-size:15px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;max-height:9.5em;overflow:hidden}
+.ttext a{color:#7cc4ff}
+.tfoot{display:flex;align-items:center;gap:8px}
+.tmeta{flex:1;min-width:0;font-size:12px;color:var(--muted)}
+.chip{min-height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line2);background:#1d2b3b;color:var(--text);font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.chip.ok{border-color:#2f6b4a;color:var(--good)}
+.chip.del{width:38px;padding:0;justify-content:center;background:transparent;border-color:transparent}
 footer{margin-top:6px;text-align:center;font-size:12px;color:var(--dim);line-height:1.6}
 footer code{color:#7cc4ff;font-size:12px}
 footer a{color:#7cc4ff}
@@ -114,6 +128,7 @@ _BODY = r"""<div class="wrap">
 <div class="tabs" role="tablist" aria-label="Transfer direction">
 <button id="tab-send" class="tab" role="tab" aria-selected="true" aria-controls="panel-send">Send to Deck</button>
 <button id="tab-get" class="tab" role="tab" aria-selected="false" aria-controls="panel-get">Get from Deck <span id="getbadge" class="badge hidden">1</span></button>
+<button id="tab-text" class="tab" role="tab" aria-selected="false" aria-controls="panel-text">Text <span id="textbadge" class="badge hidden">1</span></button>
 </div>
 
 <section id="panel-send" class="panel" role="tabpanel" aria-labelledby="tab-send">
@@ -136,6 +151,17 @@ _BODY = r"""<div class="wrap">
 <div id="selected"><div class="empty"><b>Nothing shared yet</b>Pick a file in DeckyShare on your Steam Deck. It will show up here.</div></div>
 <a id="download" class="primary hidden"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06121f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span>Download</span></a>
 <div id="transferswrap" class="hidden"><div class="section-head"><b>From Deck</b></div><div id="transfers" class="list" style="margin-top:8px"></div></div>
+</section>
+
+<section id="panel-text" class="panel hidden" role="tabpanel" aria-labelledby="tab-text">
+<div class="compose">
+<label for="tinput" class="sr">Text or link to send</label>
+<textarea id="tinput" placeholder="Type or paste text or a link" maxlength="20000"></textarea>
+<div class="compose-row"><button id="tpaste" class="secondary hidden">Paste</button><button id="tsend" class="primary" disabled><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06121f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg><span>Send to Deck</span></button></div>
+<div id="tnote" class="note"></div>
+</div>
+<div class="section-head"><b>Shared text</b><span id="tcount"></span></div>
+<div id="tlist"><div class="empty"><b>No text yet</b>Send a link or a note to your Deck, or type one in DeckyShare on the Deck. It shows up here.</div></div>
 </section>
 
 <footer>Connected to <code>__ADDRESS__</code><br>Free and open source · <a href="https://buymeacoffee.com/Gillrv" target="_blank" rel="noopener">Buy me a coffee</a></footer>
@@ -210,9 +236,47 @@ const $=id=>document.getElementById(id);
 let picked=[],lastSelected=null,connOk=true;
 function sizeText(n){return fmt(n);}
 function plural(n,w){return n+' '+w+(n===1?'':'s');}
-function setTab(name){const send=name==='send';$('tab-send').setAttribute('aria-selected',send);$('tab-get').setAttribute('aria-selected',!send);$('panel-send').classList.toggle('hidden',!send);$('panel-get').classList.toggle('hidden',send);}
+let currentTab='send';
+function setTab(name){currentTab=name;for(const t of ['send','get','text']){$('tab-'+t).setAttribute('aria-selected',t===name);$('panel-'+t).classList.toggle('hidden',t!==name);}if(name==='text')markTextsSeen();}
 $('tab-send').onclick=()=>setTab('send');
 $('tab-get').onclick=()=>setTab('get');
+$('tab-text').onclick=()=>setTab('text');
+let texts=[],textsRev=null,textSeen=null,textsStarted=false;
+function timeAgo(ts){const s=Math.max(0,Date.now()/1000-Number(ts||0));if(s<60)return 'just now';if(s<3600)return Math.round(s/60)+' min ago';if(s<86400)return Math.round(s/3600)+' h ago';return Math.round(s/86400)+' d ago';}
+function linkify(t){return escapeHtml(t).replace(/https?:\/\/[^\s<]+/g,u=>`<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);}
+function markTextsSeen(){textSeen=texts.length?texts[0].id:null;$('textbadge').classList.add('hidden');}
+function renderTexts(){
+  $('tcount').textContent=texts.length?plural(texts.length,'item'):'';
+  if(!texts.length){$('tlist').innerHTML='<div class="empty"><b>No text yet</b>Send a link or a note to your Deck, or type one in DeckyShare on the Deck. It shows up here.</div>';return;}
+  $('tlist').innerHTML='<div class="list">'+texts.map(t=>`<div class="titem"><div class="ttext">${linkify(t.text)}</div><div class="tfoot"><span class="tmeta">${t.from==='Deck'?'From Deck':'From '+escapeHtml(t.from||'device')} · ${escapeHtml(timeAgo(t.at))}</span>${t.link?`<a class="chip" href="${escapeHtml(t.text)}" target="_blank" rel="noopener noreferrer">Open</a>`:''}<button class="chip" data-copy="${t.id}">Copy</button><button class="chip del" data-del="${t.id}" aria-label="Delete"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8ea2b8" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div></div>`).join('')+'</div>';
+}
+function applyTexts(list,rev){
+  texts=Array.isArray(list)?list:[];textsRev=rev;renderTexts();
+  const top=texts[0];
+  if(!textsStarted){textsStarted=true;textSeen=top?top.id:null;return;}
+  if(top&&top.id!==textSeen){if(currentTab==='text')markTextsSeen();else if(top.from==='Deck')$('textbadge').classList.remove('hidden');}
+}
+async function copyText(text){
+  try{if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(text);return true;}}catch(e){}
+  const ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.cssText='position:fixed;top:0;left:0;opacity:0;font-size:16px';document.body.appendChild(ta);
+  const range=document.createRange();range.selectNodeContents(ta);const sel=window.getSelection();sel.removeAllRanges();sel.addRange(range);ta.select();ta.setSelectionRange(0,text.length);
+  let ok=false;try{ok=document.execCommand('copy');}catch(e){ok=false;}
+  document.body.removeChild(ta);sel.removeAllRanges();return ok;
+}
+$('tlist').addEventListener('click',async e=>{
+  const c=e.target.closest('button[data-copy]'),d=e.target.closest('button[data-del]');
+  if(c){const t=texts.find(x=>x.id===c.dataset.copy);if(!t)return;const ok=await copyText(t.text);c.textContent=ok?'Copied ✓':'Copy failed';c.classList.toggle('ok',ok);setTimeout(()=>{c.textContent='Copy';c.classList.remove('ok');},1800);}
+  if(d){try{const r=await(await api('/api/text-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:d.dataset.del})})).json();applyTexts(r.texts,r.texts_rev);}catch(err){}}
+});
+const tinput=$('tinput');
+tinput.addEventListener('input',()=>{$('tsend').disabled=!tinput.value.trim();});
+if(navigator.clipboard&&navigator.clipboard.readText&&window.isSecureContext)$('tpaste').classList.remove('hidden');
+$('tpaste').onclick=async()=>{try{tinput.value=await navigator.clipboard.readText();tinput.dispatchEvent(new Event('input'));}catch(e){$('tnote').textContent='Paste is blocked here: long-press the box and choose Paste.';}};
+$('tsend').onclick=async()=>{
+  const text=tinput.value.trim();if(!text)return;$('tsend').disabled=true;$('tnote').textContent='';
+  try{const res=await fetch('/api/text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});const r=await res.json();if(!res.ok)throw new Error(r.error||('Error '+res.status));tinput.value='';applyTexts(r.texts,r.texts_rev);markTextsSeen();$('tnote').textContent='Sent to your Deck ✓';setTimeout(()=>{$('tnote').textContent='';},2500);}
+  catch(e){$('tnote').textContent='Could not send: '+e.message;$('tsend').disabled=false;}
+};
 function renderPicked(){
   const wrap=$('pickedwrap'),list=$('picked'),btn=$('upload');
   const busy=uploadControl.running;btn.classList.toggle('hidden',busy);$('drop').classList.toggle('hidden',busy);
@@ -268,6 +332,7 @@ async function refresh(){
       else{$('selected').innerHTML='<div class="empty"><b>Nothing shared yet</b>Pick a file in DeckyShare on your Steam Deck. It will show up here.</div>';a.classList.add('hidden');a.removeAttribute('href');}
     }
     $('getbadge').classList.toggle('hidden',!sel);
+    if(s.texts_rev!==undefined&&s.texts_rev!==textsRev)applyTexts(s.texts,s.texts_rev);
     const downs=(s.transfers||[]).filter(x=>x.direction!=='upload');
     $('transferswrap').classList.toggle('hidden',!downs.length);
     $('transfers').innerHTML=downs.map(x=>`<div class="item"><div class="meta"><span class="name">${escapeHtml(x.name)}</span><span class="sub">${Number(x.percent||0).toFixed(0)}% · ${x.stalled?'<b style="color:#ffb454">stalled '+Math.round(x.stalled_for||0)+' s</b>':escapeHtml(fmt(x.speed||0)+'/s')}${x.eta?' · '+escapeHtml(duration(x.eta))+' left':''}</span><div class="bar" style="height:6px;margin-top:6px"><div class="fill" style="width:${Math.min(100,x.percent||0)}%"></div></div></div></div>`).join('');
@@ -326,7 +391,7 @@ document.getElementById('upload').onclick=async()=>{
     renderPicked();$('xstall').classList.add('hidden');
   }
 };
-renderPicked();refresh();setInterval(refresh,1000);
+renderPicked();refresh();setInterval(refresh,1000);setInterval(()=>{if(currentTab==='text')renderTexts();},30000);
 """
 
 

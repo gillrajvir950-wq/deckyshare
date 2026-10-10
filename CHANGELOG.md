@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.0-rc.1
+
+- **Clipboard**: send text and links between your phone/PC and the Deck. On the phone page use the new **Text** tab; on the Deck use the **Clipboard** section. Every item has Copy (and Open for links), the Deck shows a notification when text arrives, and the last 30 items are kept.
+- **New controller highlight**: the focused card now lights up as a whole (Steam style) instead of showing a box inside the card. Open sections highlight only their header.
+
 ## v1.2.0
 
 - **Game clips**: a new "Game clips" section lists your Steam game recordings. Tap one and DeckyShare turns it into a regular MP4 (no re-encoding, same quality) and offers it on the phone page under **Get from Deck**. Works in Gaming Mode and for clips of any length (Steam itself only sends clips up to 59 seconds to a phone). A copy is kept in `Videos/Steam Clips`.

@@ -24,6 +24,7 @@ from transfer_integrity import (
 )
 from web_ui import html_page, pair_page_html
 import steam_clips
+import text_share
 from share_sheet import (
     authorized as share_sheet_authorized,
     load_or_create_share_key,
@@ -239,6 +240,8 @@ class SenderLog:
 
 
 SENDERS = SenderLog()
+_TEXT_SETTINGS = getattr(decky, "DECKY_PLUGIN_SETTINGS_DIR", None)
+TEXTS = text_share.TextBoard(Path(_TEXT_SETTINGS) / "texts.json" if _TEXT_SETTINGS else None)
 
 
 class State:
@@ -382,12 +385,12 @@ CLIPS = steam_clips.ClipExporter()
 _START_SERVER_LOCK = threading.Lock()
 
 
-def notify_file_received(item):
+def notify_file_received(item, event="file_received"):
     """Emit a Decky frontend event from the HTTP server thread."""
     if not item or STATE.loop is None:
         return
     try:
-        future = asyncio.run_coroutine_threadsafe(decky.emit("file_received", item), STATE.loop)
+        future = asyncio.run_coroutine_threadsafe(decky.emit(event, item), STATE.loop)
 
         def _finished(f):
             try:
@@ -697,7 +700,7 @@ class Handler(BaseHTTPRequestHandler):
             if STATE.selected and STATE.selected.exists():
                 st = STATE.selected.stat()
                 sel = {"name": STATE.selected.name, "path": str(STATE.selected), "size": st.st_size, "size_human": human_size(st.st_size)}
-            return self.send_json({"selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir)})
+            return self.send_json({"selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir), "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev})
         if u.path == "/api/roots":
             return self.send_json({"roots": [{"name": n, "path": str(p)} for n, p in allowed_roots()]})
         if u.path == "/api/browse":
@@ -851,6 +854,24 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/api/clear-selection":
             STATE.selected = None
             return self.send_json({"ok": True})
+        if u.path in ("/api/text", "/api/text-delete"):
+            n = int(self.headers.get("Content-Length", "0") or 0)
+            if n > text_share.MAX_CHARS * 4 + 1024:
+                return self.send_json({"error": "Text is too long"}, 413)
+            try:
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except ValueError:
+                return self.send_json({"error": "Bad request"}, 400)
+            if u.path == "/api/text-delete":
+                TEXTS.delete(str(data.get("id") or ""))
+                return self.send_json({"ok": True, "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev})
+            source = device_from_user_agent(self.headers.get("User-Agent", "")) or "Phone"
+            try:
+                item = TEXTS.add(data.get("text"), source)
+            except ValueError as exc:
+                return self.send_json({"error": str(exc)}, 400)
+            notify_file_received(item, "text_received")
+            return self.send_json({"ok": True, "item": item, "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev})
         if u.path == "/api/cancel-upload":
             n = int(self.headers.get("Content-Length", "0"))
             data = json.loads(self.rfile.read(n) or b"{}")
@@ -1258,6 +1279,7 @@ class Plugin:
             "receive_dir": str(STATE.receive_dir),
             "received": STATE.received_snapshot(),
             "roots": [{"name": n, "path": str(p)} for n, p in allowed_roots()],
+            "texts": TEXTS.snapshot(),
         }
 
     async def status(self, *args, **kwargs):
@@ -1279,6 +1301,7 @@ class Plugin:
             "receive_dir": str(STATE.receive_dir),
             "received": STATE.received_snapshot(),
             "clip_export": _clip_job_snapshot(),
+            "texts": TEXTS.snapshot(),
         }
 
     async def shortcut_pairing_start(self, *args, **kwargs):
@@ -1366,6 +1389,23 @@ class Plugin:
         except steam_clips.ClipError as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "export": _clip_job_snapshot() or job}
+
+    async def send_text(self, payload=None, *args, **kwargs):
+        text = payload.get("text") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("text"))
+        try:
+            item = TEXTS.add(text, "Deck")
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "item": item, "texts": TEXTS.snapshot()}
+
+    async def delete_text(self, payload=None, *args, **kwargs):
+        tid = payload.get("id") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("id"))
+        TEXTS.delete(str(tid or ""))
+        return {"ok": True, "texts": TEXTS.snapshot()}
+
+    async def clear_texts(self, *args, **kwargs):
+        TEXTS.clear()
+        return {"ok": True, "texts": []}
 
     async def cancel_clip_export(self, *args, **kwargs):
         CLIPS.stop()

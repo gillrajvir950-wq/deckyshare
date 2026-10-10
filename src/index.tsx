@@ -10,20 +10,25 @@ const BaseTextField = DeckyUI.TextField || "input";
 const CONTROLLER_FOCUS_STYLE = {
   outline:"none",
   outlineOffset:0,
-  border:"1px solid #66c0f4",
-  boxShadow:"inset 3px 0 0 #66c0f4",
-  filter:"none",
+  border:"1px solid #8fd0ff",
+  boxShadow:"0 0 0 2px rgba(102,192,244,.28), 0 0 14px rgba(26,159,255,.28)",
+  filter:"brightness(1.22)",
   position:"relative",
   zIndex:1,
   transform:"none"
 };
+const CARD_FOCUS_STYLE = {
+  border:"1px solid #8fd0ff",
+  background:"linear-gradient(135deg,rgba(56,104,150,.92),rgba(30,58,90,.94))",
+  boxShadow:"0 0 0 2px rgba(102,192,244,.30), 0 6px 20px rgba(26,159,255,.28)"
+};
 
 const DialogButton = forwardRef(function DeckyShareDialogButton(props,ref){
   const [focused,setFocused]=useState(false);
-  const {style,onFocus,onBlur,className,...rest}=props||{};
+  const {style,onFocus,onBlur,className,plainFocus,...rest}=props||{};
   const focus=e=>{setFocused(true);if(typeof onFocus==="function")onFocus(e);};
   const blur=e=>{setFocused(false);if(typeof onBlur==="function")onBlur(e);};
-  const shared={...rest,ref,className:`deckyshare-action${className?` ${className}`:""}`,style:{...style,...(focused?CONTROLLER_FOCUS_STYLE:{})},onFocus:focus,onBlur:blur};
+  const shared={...rest,ref,className:`deckyshare-action${className?` ${className}`:""}`,style:{...style,...(focused&&!plainFocus?CONTROLLER_FOCUS_STYLE:{})},onFocus:focus,onBlur:blur};
   if(BaseDialogButton!=="button"){
     shared.noFocusRing=true;
   }
@@ -116,6 +121,7 @@ const ICON_PATHS={
   settings:["M12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6","M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"],
   qr:["M4 4h6v6H4z","M14 4h6v6h-6z","M4 14h6v6H4z","M14 14h2v2h-2z","M18 14h2","M14 18h2","M18 18h2v2h-2z"],
   check:["M5 12l5 5 10-10"],
+  clipboard:["M9 4h6v3H9z","M9 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-3","M9 12h6","M9 16h4"],
   film:["M4 4h16v16H4z","M8 4v16","M16 4v16","M4 8h4","M4 12h4","M4 16h4","M16 8h4","M16 12h4","M16 16h4"],
   chevronRight:["M9 6l6 6-6 6"],
   chevronDown:["M6 9l6 6 6-6"]
@@ -212,13 +218,19 @@ function Btn({children,onClick,disabled=false}){return h(DialogButton,{disabled,
 function Card({children,style={}}){return h("div",{style:{background:"rgba(19,28,39,.96)",border:"1px solid rgba(255,255,255,.07)",borderRadius:14,padding:12,margin:"8px 0",...style}},children);}
 function SectionTitle({icon,title,sub,tone="blue"}){return h("div",{style:{display:"flex",gap:10,alignItems:"center",marginBottom:10}},typeof icon==="string"?h(IconTile,{name:icon,tone}):icon,h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:780,fontSize:14}},title),sub&&h("div",{style:{fontSize:10,opacity:.6,marginTop:1,lineHeight:1.3}},sub)));}
 function AccordionCard({icon,title,sub,open,onToggle,children,style={},tone="blue",meta=null,badge=null,primary=false}){
-  return h(Card,{style:primary&&!open?{border:"2px solid #1a9fff",background:"rgba(18,39,61,.96)",...style}:style},
-    h(DialogButton,{onClick:onToggle,"aria-expanded":!!open,style:{width:"100%",minHeight:0,padding:"1px",margin:0,border:0,background:"transparent",color:"white",textAlign:"left"}},
+  const [focused,setFocused]=useState(false);
+  const base=primary&&!open?{border:"2px solid #1a9fff",background:"rgba(18,39,61,.96)",...style}:style;
+  // Collapsed: the whole card lights up. Open: only the outline and the header row,
+  // so the content below stays readable.
+  const focusLook=open?{border:CARD_FOCUS_STYLE.border,boxShadow:CARD_FOCUS_STYLE.boxShadow}:{...CARD_FOCUS_STYLE,border:primary?"2px solid #8fd0ff":CARD_FOCUS_STYLE.border};
+  const cardStyle={...base,...(focused?focusLook:{}),transition:"background .12s ease,box-shadow .12s ease"};
+  return h(Card,{style:cardStyle},
+    h(DialogButton,{plainFocus:true,onClick:onToggle,onFocus:()=>setFocused(true),onBlur:()=>setFocused(false),"aria-expanded":!!open,style:{width:"100%",minHeight:0,padding:"1px",margin:0,border:0,borderRadius:10,background:focused&&open?"linear-gradient(135deg,rgba(56,104,150,.75),rgba(30,58,90,.6))":"transparent",boxShadow:focused&&open?"0 0 0 6px rgba(56,104,150,.45)":"none",color:"white",textAlign:"left"}},
       h("div",{style:{display:"grid",gridTemplateColumns:"30px minmax(0,1fr) auto 18px",gap:9,alignItems:"center"}},
         typeof icon==="string"?h(IconTile,{name:icon,tone}):icon,
-        h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:760,fontSize:14}},title),sub&&h("div",{style:{fontSize:10,opacity:.58,marginTop:1,lineHeight:1.25,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},sub)),
+        h("div",{style:{minWidth:0}},h("div",{style:{fontWeight:760,fontSize:14}},title),sub&&h("div",{style:{fontSize:10,opacity:focused?.85:.58,marginTop:1,lineHeight:1.25,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},sub)),
         badge!=null?h("span",{style:{fontSize:10,fontWeight:800,color:"#06121f",background:"#c9d6e3",borderRadius:999,padding:"1px 7px"}},badge):(meta?h("span",{style:{fontSize:10,fontWeight:700,color:typeof meta==="object"&&meta.tone==="muted"?"#8ea2b8":"#9fe0b8",whiteSpace:"nowrap"}},typeof meta==="object"?meta.text:meta):h("span",null)),
-        h("div",{style:{color:"#8ea2b8",display:"flex",justifyContent:"center"}},h(Icon,{name:open?"chevronDown":"chevronRight",size:16}))
+        h("div",{style:{color:focused?"#d9f0ff":"#8ea2b8",display:"flex",justifyContent:"center"}},h(Icon,{name:open?"chevronDown":"chevronRight",size:16}))
       )
     ),
     open&&h("div",{style:{paddingTop:9}},children)
@@ -334,10 +346,11 @@ function makePanel(){
   try{backendAPI=connectDeckyBackend();}catch(e){console.error("[DeckyShare] API connect failed",e);}
   return function Panel(){
     const [status,setStatus]=useState(null),[roots,setRoots]=useState([]),[path,setPath]=useState(null),[parent,setParent]=useState(null),[items,setItems]=useState([]),[err,setErr]=useState(""),[connIndex,setConnIndex]=useState(0),[deleteArmed,setDeleteArmed]=useState(null),[notifyOn,setNotifyOn]=useState(notificationsEnabled()),[copied,setCopied]=useState(false),[copiedPath,setCopiedPath]=useState(null),[updateInfo,setUpdateInfo]=useState(null),[updateBusy,setUpdateBusy]=useState(false),[updateArmed,setUpdateArmed]=useState(false),[rollbackArmed,setRollbackArmed]=useState(false),[browseQuery,setBrowseQuery]=useState(""),[browseSort,setBrowseSort]=useState("name"),[fmStorage,setFmStorage]=useState(null),[fmSelect,setFmSelect]=useState(false),[fmPicked,setFmPicked]=useState([]),[fmClip,setFmClip]=useState(null),[fmBusy,setFmBusy]=useState(false),[fmNew,setFmNew]=useState(""),[fmRename,setFmRename]=useState(null),[fmRenameValue,setFmRenameValue]=useState(""),[fmInfo,setFmInfo]=useState(null),[fmTrashArmed,setFmTrashArmed]=useState(false),[browseLimit,setBrowseLimit]=useState(50),[fmMenu,setFmMenu]=useState(false);
-    const [openSections,setOpenSections]=useState({browse:false,clips:false,received:false,updates:false,support:false,wifi:false});
+    const [openSections,setOpenSections]=useState({browse:false,clips:false,texts:false,received:false,updates:false,support:false,wifi:false});
     const [showQr,setShowQr]=useState(false),[cancelArmed,setCancelArmed]=useState(null);
     const [clips,setClips]=useState(null),[clipThumbs,setClipThumbs]=useState({}),[clipLimit,setClipLimit]=useState(8),[clipBusy,setClipBusy]=useState(false);
     const clipJobRef=useRef(null);
+    const [textDraft,setTextDraft]=useState(""),[textBusy,setTextBusy]=useState(false),[textLimit,setTextLimit]=useState(4),[clearArmed,setClearArmed]=useState(false);
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
     const firstBrowseItemRef=useRef(null);
@@ -555,6 +568,28 @@ function makePanel(){
         await refreshStatus();
       }catch(e){setErr("Clip: "+String(e&&e.message||e));}
     }
+    async function sendText(){
+      const text=textDraft.trim();
+      if(!text||textBusy)return;
+      setTextBusy(true);
+      try{
+        const r=await call("send_text",{text});
+        if(!r||!r.ok)throw new Error(r&&r.error||"Could not send");
+        setTextDraft("");setStatus(x=>({...x,texts:r.texts||x.texts}));
+        toast(backendAPI,"Text sent • open the Text tab on your phone");
+      }catch(e){setErr("Text: "+String(e&&e.message||e));}
+      finally{setTextBusy(false);}
+    }
+    async function deleteText(id){try{const r=await call("delete_text",{id});setStatus(x=>({...x,texts:r&&r.texts||[]}));}catch(e){setErr("Text: "+String(e&&e.message||e));}}
+    async function clearTexts(){
+      if(!clearArmed){setClearArmed(true);setTimeout(()=>setClearArmed(false),5000);return;}
+      setClearArmed(false);
+      try{await call("clear_texts");setStatus(x=>({...x,texts:[]}));}catch(e){setErr("Text: "+String(e&&e.message||e));}
+    }
+    function openLink(url){
+      try{if(DeckyUI.Navigation&&typeof DeckyUI.Navigation.NavigateToExternalWeb==="function"){DeckyUI.Navigation.NavigateToExternalWeb(url);return;}}catch(e){}
+      try{window.open(url,"_blank");}catch(e){setErr("Open link failed");}
+    }
     async function cancelClipExport(){try{await call("cancel_clip_export");await refreshStatus();}catch(e){setErr("Clip: "+String(e&&e.message||e));}}
     useEffect(()=>{if(openSections.clips&&status)loadClips();},[openSections.clips,!!status]);
     useEffect(()=>{if(clips&&openSections.clips)loadClipThumbs(clips.slice(0,clipLimit));},[clips,clipLimit,openSections.clips]);
@@ -686,6 +721,24 @@ function makePanel(){
           h(MiniButton,{onClick:loadClips},clipBusy?"Refreshing…":"Refresh"))
       ),
 
+      h(AccordionCard,{icon:"clipboard",tone:"amber",title:"Clipboard",sub:"Copy and paste between phone and Deck",badge:status.texts&&status.texts.length?status.texts.length:null,open:openSections.texts,onToggle:()=>toggleSection("texts")},
+        h("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:6,alignItems:"center"}},
+          h(TextField,{value:textDraft,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
+          h(MiniButton,{onClick:sendText},textBusy?"Sending…":"Send")),
+        h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,margin:"6px 1px 4px"}},"On your phone, open the Text tab to send to the Deck or to copy what you sent."),
+        (!status.texts||!status.texts.length)?h("div",{style:{opacity:.5,fontSize:11,padding:"8px 0 2px"}},"Nothing shared yet"):
+        h("div",null,
+          status.texts.slice(0,textLimit).map(t=>h("div",{key:t.id,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:11,padding:"8px 9px",margin:"6px 0"}},
+            h("div",{style:{fontSize:11,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:"5.6em",overflow:"hidden",color:t.link?"#9ed6ff":"white"}},t.text),
+            h("div",{style:{fontSize:9,opacity:.5,marginTop:4}},`${t.from==="Deck"?"From this Deck":`From ${t.from}`} · ${timeAgo(t.at)}`),
+            h("div",{style:{display:"flex",gap:5,marginTop:6,flexWrap:"wrap"}},
+              h(MiniButton,{compact:true,onClick:()=>copyText(t.text,"Text")},copiedPath===t.text?"✓ Copied":"Copy"),
+              t.link&&h(MiniButton,{compact:true,onClick:()=>openLink(t.text)},"Open link"),
+              h(MiniButton,{compact:true,tone:"danger",onClick:()=>deleteText(t.id)},"Delete")))),
+          status.texts.length>textLimit&&h(DialogButton,{onClick:()=>setTextLimit(x=>x+6),style:{width:"100%",padding:"7px",marginTop:4,borderRadius:9,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#bde7ff",fontSize:10,fontWeight:700}},`Show more • ${textLimit} of ${status.texts.length}`),
+          status.texts.length>1&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:clearTexts},clearArmed?"Press again to clear all":"Clear all")))
+      ),
+
       h(AccordionCard,{icon:"inbox",tone:"green",title:"Received files",sub:"Saved in Downloads/DeckShare",badge:status.received&&status.received.length?status.received.length:null,open:openSections.received,onToggle:()=>toggleSection("received")},
         (!status.received||!status.received.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:12,padding:10,margin:"7px 0"}},
           h("div",{style:{display:"flex",gap:9,alignItems:"center"}},h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(26,159,255,.12)",color:"#7cc4ff"}},browseFileIcon(f,18)),h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:740,wordBreak:"break-word"}},f.name),h("div",{style:{fontSize:10,opacity:.54,marginTop:2}},f.size_human))),
@@ -731,12 +784,14 @@ function makePanel(){
 
 export default function(){
   const Panel=makePanel();
-  let notifyAPI=null,receiveListener=null;
+  let notifyAPI=null,receiveListener=null,textListener=null;
   try{
     notifyAPI=connectDeckyBackend();
     if(notifyAPI&&typeof notifyAPI.addEventListener==="function"){
       receiveListener=(...args)=>queueReceivedToast(notifyAPI,args.length?args[args.length-1]:null);
       notifyAPI.addEventListener("file_received",receiveListener);
+      textListener=(...args)=>{const t=unwrap(args.length?args[args.length-1]:null);if(!t||!t.text||!notificationsEnabled())return;const snippet=String(t.text).replace(/\s+/g," ").slice(0,60);toast(notifyAPI,`Text from ${t.from||"phone"}: ${snippet}${t.text.length>60?"…":""}`);};
+      notifyAPI.addEventListener("text_received",textListener);
     }
   }catch(e){console.error("[DeckyShare] global receive notifications unavailable",e);}
   return {
@@ -746,6 +801,7 @@ export default function(){
     icon:h(DeckyShareBrandIcon,{size:22}),
     onDismount(){
       try{if(notifyAPI&&receiveListener&&typeof notifyAPI.removeEventListener==="function")notifyAPI.removeEventListener("file_received",receiveListener);}catch(e){}
+      try{if(notifyAPI&&textListener&&typeof notifyAPI.removeEventListener==="function")notifyAPI.removeEventListener("text_received",textListener);}catch(e){}
       if(receivedBatchTimer){clearTimeout(receivedBatchTimer);receivedBatchTimer=null;}
       receivedBatch=[];
       console.log("DeckyShare UI unloaded");
