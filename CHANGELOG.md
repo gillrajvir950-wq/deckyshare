@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.0-rc.10
+
+- **Remembered devices**: a phone or computer that connected once keeps working after the Deck restarts, with no QR code or 6-digit code. Bookmark the address and just open it. Manage or forget devices under **Settings & support → Remembered devices** (forgetting also changes the QR key).
+- **ROMs straight into EmuDeck / RetroDECK**: game files you send (GBA, SNES, N64, DS, 3DS, Switch, PS1, PS2, PSP, GameCube, Wii, Wii U, Genesis and more) go into the matching `Emulation/roms/<system>` folder, including the SD card. Disc images (.iso, .rvz) are recognised by their content. Files that cannot be told apart (.chd, .cue/.bin, .zip) stay in Downloads. Received files shows where each ROM went; turn it off under **Settings & support → Game ROMs**.
+- Removed the temporary "Paste test" box.
+
 ## v1.3.0-rc.9
 
 - Fixed: the Paste button read the clipboard but the text did not show in the box unless the box had been tapped first.

@@ -15,6 +15,8 @@ or computer: it works in any browser.
 
 - **Phone / computer → Deck**: pick one or many files in the browser; they are saved in `~/Downloads/DeckShare/`.
 - **Deck → phone / computer**: pick a file in Gaming Mode and download it in the browser.
+- **ROMs into EmuDeck**: game files you send land in the right `Emulation/roms/<system>` folder (EmuDeck or RetroDECK).
+- **Remembered devices**: connect once; after a Deck restart just open the address again, no QR code needed.
 - **Screenshots**: pick Steam screenshots in Gaming Mode and save them on your phone from a gallery.
 - **Clipboard**: send text and links between phone/PC and Deck, with one-tap Copy and Open.
 - **Game clips of any length**: turn Steam game recordings into MP4 in Gaming Mode and send them to your phone (Steam's own share is limited to 59 seconds).

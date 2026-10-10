@@ -308,7 +308,7 @@ function RecentList({items}){
     h(Card,{style:{padding:0}},items.slice(0,3).map((f,i)=>h("div",{key:f.path,style:{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderTop:i?"1px solid rgba(255,255,255,.06)":"none"}},
       h("div",{style:{minWidth:0,flex:1}},
         h("div",{style:{fontSize:12,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}},f.name),
-        h("div",{style:{fontSize:10,opacity:.6,marginTop:1}},`${f.from?`From ${f.from}`:"Received"} · ${f.size_human} · ${timeAgo(f.received_at)}`)),
+        h("div",{style:{fontSize:10,opacity:.6,marginTop:1}},`${f.from?`From ${f.from}`:"Received"} · ${f.size_human}${f.rom?` · ${f.rom.system}`:""} · ${timeAgo(f.received_at)}`)),
       h("div",{style:{color:"#3ddc84"}},h(Icon,{name:"check",size:15,strokeWidth:2.4}))))));
 }
 function SubSection({title,children,first=false}){
@@ -383,7 +383,7 @@ function makePanel(){
     const clipJobRef=useRef(null);
     const [pasteHint,setPasteHint]=useState(null);
     const composeRef=useRef(null);
-    const [pasteBusy,setPasteBusy]=useState(false);
+    const [pasteBusy,setPasteBusy]=useState(false),[forgetAllArmed,setForgetAllArmed]=useState(false);
     const [typingLocal,setTypingLocal]=useState(false),[inputLog,setInputLog]=useState([]);
     const logInput=line=>setInputLog(v=>[...v.slice(-7),line]);
     const [shots,setShots]=useState(null),[shotThumbs,setShotThumbs]=useState({}),[shotPicked,setShotPicked]=useState([]),[shotLimit,setShotLimit]=useState(12),[shotBusy,setShotBusy]=useState(false);
@@ -654,6 +654,13 @@ function makePanel(){
       }catch(e){setErr("Paste: "+String(e&&e.message||e));}
       finally{setPasteBusy(false);}
     }
+    async function setRomSort(enabled){try{const r=await call("set_rom_sort",{enabled});setStatus(x=>({...x,roms:r&&r.roms||x.roms}));}catch(e){setErr("ROMs: "+String(e&&e.message||e));}}
+    async function forgetDevice(id){try{const r=await call("forget_device",{id});setStatus(x=>({...x,devices:r&&r.devices||[]}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}}
+    async function forgetAllDevices(){
+      if(!forgetAllArmed){setForgetAllArmed(true);setTimeout(()=>setForgetAllArmed(false),5000);return;}
+      setForgetAllArmed(false);
+      try{await call("forget_all_devices");setStatus(x=>({...x,devices:[]}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}
+    }
     async function sendText(){
       const el=composeRef.current;
       const domText=el&&typeof el.value==="string"?el.value:"";
@@ -871,10 +878,9 @@ function makePanel(){
 
       h(AccordionCard,{icon:"clipboard",tone:"amber",title:"Clipboard",sub:"Copy and paste between phone and Deck",badge:status.texts&&status.texts.length?status.texts.length:null,open:openSections.texts,onToggle:()=>toggleSection("texts")},
         h(Focusable,{"flow-children":"horizontal",style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 54px 54px",gap:5,alignItems:"center"}},
-          h(TextField,{value:textDraft,inputRef:composeRef,debugLog:String(status.version||"").includes("-rc")?logInput:undefined,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
+          h(TextField,{value:textDraft,inputRef:composeRef,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
           h(MiniButton,{block:true,onClick:pasteFromDeck},pasteBusy?"…":"Paste"),
           h(MiniButton,{block:true,onClick:sendText},textBusy?"…":"Send")),
-        String(status.version||"").includes("-rc")&&inputLog.length>0&&h("div",{style:{margin:"6px 0 2px",padding:"5px 7px",borderRadius:7,background:"rgba(0,0,0,.35)",fontFamily:"monospace",fontSize:8.5,lineHeight:1.35,color:"#c9d6e3"}},h("div",{style:{opacity:.6,marginBottom:2}},"Paste test (test builds only)"),inputLog.map((l,i)=>h("div",{key:i},l))),
         h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"Copy puts text on the Deck clipboard. Paste here fills the box from it. In other apps, tap Paste on the Steam keyboard. On your phone, use the Text tab."),
         (!status.texts||!status.texts.length)?h("div",{style:{opacity:.5,fontSize:11,padding:"8px 0 2px"}},"Nothing shared yet"):
         h("div",null,
@@ -895,6 +901,7 @@ function makePanel(){
       h(AccordionCard,{icon:"inbox",tone:"green",title:"Received files",sub:"Saved in Downloads/DeckShare",badge:status.received&&status.received.length?status.received.length:null,open:openSections.received,onToggle:()=>toggleSection("received")},
         (!status.received||!status.received.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:12,padding:10,margin:"7px 0"}},
           h("div",{style:{display:"flex",gap:9,alignItems:"center"}},h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(26,159,255,.12)",color:"#7cc4ff"}},browseFileIcon(f,18)),h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:740,wordBreak:"break-word"}},f.name),h("div",{style:{fontSize:10,opacity:.54,marginTop:2}},f.size_human))),
+          f.rom&&h("div",{style:{display:"flex",alignItems:"center",gap:5,marginTop:6,fontSize:10,fontWeight:720,color:"#7fe3ad"}},h(Icon,{name:"check",size:12}),`In ${f.rom.app} • ${f.rom.system}`),
           h("div",{style:{fontSize:9,opacity:.42,marginTop:6,wordBreak:"break-all"}},f.path),
           h("div",{style:{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}},h(MiniButton,{onClick:()=>showReceivedFolder(f.path)},"Show folder"),h(MiniButton,{onClick:()=>copyText(f.path,"Path")},copiedPath===f.path?"✓ Copied":"Copy path"),h(MiniButton,{onClick:()=>deleteReceived(f.path),tone:"danger"},deleteArmed===f.path?"Tap again":"Delete"))
         ))
@@ -928,6 +935,21 @@ function makePanel(){
       ),
       !busy&&h(AccordionCard,{icon:"settings",tone:"gray",title:"Settings & support",sub:null,open:openSections.support,onToggle:()=>toggleSection("support")},
         h(SubSection,{title:"Notifications",first:true},h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},h("div",{style:{fontSize:11,opacity:.65,lineHeight:1.35}},notifyOn?"On • multi-file receives are grouped":"Notifications are off"),h(MiniButton,{onClick:toggleNotifications},notifyOn?"Turn off":"Turn on"))),
+        h(SubSection,{title:"Game ROMs"},
+          h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}},
+            h("div",{style:{fontSize:11,opacity:.7,lineHeight:1.35,minWidth:0}},
+              status.roms&&status.roms.found
+                ?(status.roms.enabled?`On • ROMs you send go into ${status.roms.app}'s roms folders`:`Off • ROMs stay in Downloads/DeckShare`)
+                :"EmuDeck or RetroDECK not found • ROMs stay in Downloads/DeckShare"),
+            status.roms&&status.roms.found&&h(MiniButton,{onClick:()=>setRomSort(!status.roms.enabled)},status.roms.enabled?"Turn off":"Turn on")),
+          status.roms&&status.roms.found&&h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,marginTop:5,wordBreak:"break-all"}},`${status.roms.root} • GBA, SNES, N64, DS, 3DS, Switch, PS1, PS2, PSP, GameCube, Wii and more. Run Steam ROM Manager to add new games to Steam.`)),
+        h(SubSection,{title:"Remembered devices"},
+          (!status.devices||!status.devices.length)?h("div",{style:{fontSize:11,opacity:.6,lineHeight:1.35}},"None yet. A phone or computer is remembered after it connects once, so it does not need the QR code again after a restart."):
+          h("div",null,
+            status.devices.map(d=>h("div",{key:d.id,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:"1px solid rgba(255,255,255,.05)"}},
+              h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontSize:11,fontWeight:720}},d.name||"Device"),h("div",{style:{fontSize:9,opacity:.5}},`Last used ${timeAgo(d.last_seen)}`)),
+              h(MiniButton,{compact:true,tone:"danger",onClick:()=>forgetDevice(d.id)},"Forget"))),
+            status.devices.length>1&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:forgetAllDevices},forgetAllArmed?"Press again to forget all":"Forget all")))),
         h(SubSection,{title:"Support DeckyShare"},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"Buy me a coffee"))
       ),
       err&&h("div",{style:{color:"#ffb3b3",marginTop:8,fontSize:11,wordBreak:"break-word"}},err)
@@ -937,7 +959,7 @@ function makePanel(){
 
 export default function(){
   const Panel=makePanel();
-  let notifyAPI=null,receiveListener=null,textListener=null;
+  let notifyAPI=null,receiveListener=null,textListener=null,romListener=null;
   try{
     notifyAPI=connectDeckyBackend();
     if(notifyAPI&&typeof notifyAPI.addEventListener==="function"){
@@ -945,6 +967,8 @@ export default function(){
       notifyAPI.addEventListener("file_received",receiveListener);
       textListener=(...args)=>{const t=unwrap(args.length?args[args.length-1]:null);if(!t||!t.text||!notificationsEnabled())return;const snippet=String(t.text).replace(/\s+/g," ").slice(0,60);toast(notifyAPI,`Text from ${t.from||"phone"}: ${snippet}${t.text.length>60?"…":""}`);};
       notifyAPI.addEventListener("text_received",textListener);
+      romListener=(...args)=>{const r=unwrap(args.length?args[args.length-1]:null);if(!r||!r.name||!notificationsEnabled())return;toast(notifyAPI,`${r.name} → ${r.app} • ${r.system}`);};
+      notifyAPI.addEventListener("rom_sorted",romListener);
     }
   }catch(e){console.error("[DeckyShare] global receive notifications unavailable",e);}
   return {
@@ -955,6 +979,7 @@ export default function(){
     onDismount(){
       try{if(notifyAPI&&receiveListener&&typeof notifyAPI.removeEventListener==="function")notifyAPI.removeEventListener("file_received",receiveListener);}catch(e){}
       try{if(notifyAPI&&textListener&&typeof notifyAPI.removeEventListener==="function")notifyAPI.removeEventListener("text_received",textListener);}catch(e){}
+      try{if(notifyAPI&&romListener&&typeof notifyAPI.removeEventListener==="function")notifyAPI.removeEventListener("rom_sorted",romListener);}catch(e){}
       if(receivedBatchTimer){clearTimeout(receivedBatchTimer);receivedBatchTimer=null;}
       receivedBatch=[];
       console.log("DeckyShare UI unloaded");

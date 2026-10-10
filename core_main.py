@@ -27,6 +27,8 @@ import steam_clips
 import text_share
 import deck_keyboard
 import deck_clipboard
+import rom_sort
+import trusted_devices
 import steam_screens
 from share_sheet import (
     authorized as share_sheet_authorized,
@@ -245,6 +247,8 @@ class SenderLog:
 SENDERS = SenderLog()
 _TEXT_SETTINGS = getattr(decky, "DECKY_PLUGIN_SETTINGS_DIR", None)
 TEXTS = text_share.TextBoard(Path(_TEXT_SETTINGS) / "texts.json" if _TEXT_SETTINGS else None)
+DEVICES = trusted_devices.DeviceStore(Path(_TEXT_SETTINGS) / "devices.json" if _TEXT_SETTINGS else None)
+ROMS = rom_sort.RomSorter(Path(decky.DECKY_USER_HOME), Path(_TEXT_SETTINGS) if _TEXT_SETTINGS else None)
 
 
 class State:
@@ -313,6 +317,12 @@ class State:
                 self.received = [x for x in self.received if x.get("path") != str(p)]
                 self.received.insert(0, item)
                 self.received = self.received[:50]
+            try:
+                job = ROMS.maybe_sort(p, current_sender(), on_done=lambda r: notify_file_received(r, "rom_sorted"))
+                if job:
+                    item["sorting"] = job["system"]
+            except Exception:
+                decky.logger.exception("DeckyShare ROM sorting failed")
             return item
         except Exception:
             return None
@@ -337,6 +347,12 @@ class State:
                     })
                 except OSError:
                     continue
+            for m in ROMS.recent_moves():
+                disk.append({
+                    "name": m["name"], "path": m["path"], "size": m.get("size", 0),
+                    "size_human": human_size(m.get("size", 0)), "received_at": m.get("moved_at", 0),
+                    "from": m.get("from"), "rom": {"system": m.get("system"), "app": m.get("app"), "folder": m.get("folder")},
+                })
             disk.sort(key=lambda x: x["received_at"], reverse=True)
             with self.lock:
                 self.received = disk[:50]
@@ -584,26 +600,43 @@ class Handler(BaseHTTPRequestHandler):
         decky.logger.info("DeckyShare HTTP: " + (fmt % args))
 
     def token_ok(self):
-        provided = ""
+        candidates = []
         try:
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-            provided = str(query.get("token", [""])[0] or "")
+            candidates.append(str(query.get("token", [""])[0] or ""))
         except Exception:
-            provided = ""
-        if not provided:
-            provided = str(self.headers.get("X-DeckyShare-Token", "") or "")
-        if not provided:
-            try:
-                cookies = SimpleCookie()
-                cookies.load(self.headers.get("Cookie", ""))
-                morsel = cookies.get("deckyshare_token")
-                provided = morsel.value if morsel else ""
-            except Exception:
-                provided = ""
+            pass
+        candidates.append(str(self.headers.get("X-DeckyShare-Token", "") or ""))
+        device = ""
         try:
-            return bool(provided) and secrets.compare_digest(provided, STATE.token)
+            cookies = SimpleCookie()
+            cookies.load(self.headers.get("Cookie", ""))
+            morsel = cookies.get("deckyshare_token")
+            candidates.append(morsel.value if morsel else "")
+            dm = cookies.get(trusted_devices.COOKIE)
+            device = dm.value if dm else ""
         except Exception:
-            return False
+            pass
+        try:
+            if any(c and secrets.compare_digest(c, STATE.token) for c in candidates):
+                return True
+        except Exception:
+            pass
+        # A remembered phone/computer keeps working after the Deck restarts.
+        return bool(device and DEVICES.verify(device))
+
+    def remember_device_header(self):
+        """Set-Cookie for a long-lived device key, unless this device already has one."""
+        try:
+            cookies = SimpleCookie()
+            cookies.load(self.headers.get("Cookie", ""))
+            dm = cookies.get(trusted_devices.COOKIE)
+            if dm and DEVICES.verify(dm.value):
+                return None
+        except Exception:
+            pass
+        name = device_from_user_agent(self.headers.get("User-Agent", "")) or "Browser"
+        return trusted_devices.cookie_header(DEVICES.create(name))
 
     def loopback_client(self):
         try:
@@ -685,6 +718,9 @@ class Handler(BaseHTTPRequestHandler):
                 "Set-Cookie",
                 f"deckyshare_token={STATE.token}; Path=/; HttpOnly; SameSite=Strict",
             )
+            remember = self.remember_device_header()
+            if remember:
+                self.send_header("Set-Cookie", remember)
             self.end_headers()
             self.wfile.write(data)
             return
@@ -850,6 +886,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Set-Cookie", f"deckyshare_token={STATE.token}; Path=/; HttpOnly; SameSite=Strict")
+        remember = self.remember_device_header()
+        if remember:
+            self.send_header("Set-Cookie", remember)
         self.end_headers()
         self.wfile.write(body)
 
@@ -1356,6 +1395,8 @@ class Plugin:
             "texts": TEXTS.snapshot(),
             "typing": TYPIST.snapshot(),
             "shared": shared_info(),
+            "roms": ROMS.info(),
+            "devices": DEVICES.list(),
         }
 
     async def shortcut_pairing_start(self, *args, **kwargs):
@@ -1395,8 +1436,10 @@ class Plugin:
             raise ValueError("Missing file path")
         p = Path(pth).expanduser().resolve()
         root = STATE.receive_dir.resolve()
+        moved_rom = any(Path(m["path"]).resolve() == p for m in ROMS.recent_moves())
         try:
-            p.relative_to(root)
+            if not moved_rom:
+                p.relative_to(root)
         except ValueError:
             raise ValueError("Only DeckyShare received files can be deleted")
         if not p.exists() or not p.is_file():
@@ -1520,6 +1563,24 @@ class Plugin:
         except deck_keyboard.KeyboardError as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "typing": job}
+
+    async def forget_device(self, payload=None, *args, **kwargs):
+        did = payload.get("id") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("id"))
+        if DEVICES.forget(str(did or "")):
+            # New session key so a forgotten browser cannot keep using its old one.
+            # Remembered devices keep working through their own keys.
+            STATE.token = secrets.token_urlsafe(12)
+        return {"ok": True, "devices": DEVICES.list()}
+
+    async def forget_all_devices(self, *args, **kwargs):
+        DEVICES.forget_all()
+        STATE.token = secrets.token_urlsafe(12)
+        return {"ok": True, "devices": []}
+
+    async def set_rom_sort(self, payload=None, *args, **kwargs):
+        value = payload.get("enabled") if isinstance(payload, dict) else kwargs.get("enabled", payload)
+        ROMS.set_enabled(bool(value))
+        return {"ok": True, "roms": ROMS.info()}
 
     async def read_clipboard(self, *args, **kwargs):
         try:

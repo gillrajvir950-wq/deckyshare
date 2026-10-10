@@ -174,7 +174,7 @@ _BODY = r"""<div class="wrap">
 <div id="tlist"><div class="empty"><b>No text yet</b>Send a link or a note to your Deck, or type one in DeckyShare on the Deck. It shows up here.</div></div>
 </section>
 
-<footer>Connected to <code>__ADDRESS__</code><br>Free and open source · <a href="https://buymeacoffee.com/Gillrv" target="_blank" rel="noopener">Buy me a coffee</a></footer>
+<footer>Connected to <code>__ADDRESS__</code><br>This device is remembered: next time just open this address, no scanning.<br>Free and open source · <a href="https://buymeacoffee.com/Gillrv" target="_blank" rel="noopener">Buy me a coffee</a></footer>
 </div>"""
 
 _CORE_JS = r"""async function api(path,opt){const r=await fetch(path,opt);if(!r.ok)throw new Error(await r.text());return r;}
@@ -415,6 +415,7 @@ document.getElementById('upload').onclick=async()=>{
     renderPicked();$('xstall').classList.add('hidden');
   }
 };
+try{if(/[?&]token=/.test(location.search))history.replaceState(null,'',location.pathname);}catch(e){}
 renderPicked();refresh();setInterval(refresh,1000);setInterval(()=>{if(currentTab==='text')renderTexts();},30000);
 """
 
