@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.0-rc.4
+
+- **Screenshots**: a new section shows your Steam screenshots grouped by game. Tap to pick one or many, press **Send to phone**, and they appear as a gallery on the phone page under **Get from Deck**. On iPhone, press and hold a picture and choose Save to Photos, or tap Download.
+- Phone page tabs no longer wrap onto two lines when a badge is shown.
+
 ## v1.3.0-rc.3
 
 - After **Copy** in the Clipboard section, DeckyShare now explains how to paste in Gaming Mode: press and hold **Paste** on the Steam keyboard (a short tap does not paste).

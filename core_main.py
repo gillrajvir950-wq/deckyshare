@@ -26,6 +26,7 @@ from web_ui import html_page, pair_page_html
 import steam_clips
 import text_share
 import deck_keyboard
+import steam_screens
 from share_sheet import (
     authorized as share_sheet_authorized,
     load_or_create_share_key,
@@ -382,6 +383,7 @@ class State:
 SPEED_WINDOW_SECONDS = 3.0
 STALL_AFTER_SECONDS = 2.0
 STATE = State()
+STATE.shared = []  # several files offered at once (screenshots)
 CLIPS = steam_clips.ClipExporter()
 TYPIST = deck_keyboard.Typist()
 _START_SERVER_LOCK = threading.Lock()
@@ -702,7 +704,7 @@ class Handler(BaseHTTPRequestHandler):
             if STATE.selected and STATE.selected.exists():
                 st = STATE.selected.stat()
                 sel = {"name": STATE.selected.name, "path": str(STATE.selected), "size": st.st_size, "size_human": human_size(st.st_size)}
-            return self.send_json({"selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir), "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev})
+            return self.send_json({"selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir), "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev, "shared": shared_info()})
         if u.path == "/api/roots":
             return self.send_json({"roots": [{"name": n, "path": str(p)} for n, p in allowed_roots()]})
         if u.path == "/api/browse":
@@ -729,10 +731,43 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"path": str(p), "parent": parent, "items": items})
         if u.path == "/download":
             return self.handle_download()
+        if u.path == "/shared":
+            return self.handle_shared_inline()
         self.send_error(404)
 
+    def _shared_from_query(self):
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if "i" not in q:
+            return None, False
+        try:
+            i = int(q["i"][0])
+            return list(STATE.shared)[i], True
+        except (ValueError, IndexError):
+            return None, True
+
+    def handle_shared_inline(self):
+        """Full picture for the phone's gallery (not counted as a transfer)."""
+        p, _ = self._shared_from_query()
+        if not p or not p.is_file():
+            self.send_error(404, "Not shared")
+            return
+        data_len = p.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(p.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(data_len))
+        self.send_header("Cache-Control", "private, max-age=600")
+        self.end_headers()
+        with open(p, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
     def handle_download(self):
-        p = STATE.selected
+        p, from_list = self._shared_from_query()
+        if not from_list:
+            p = STATE.selected
         if not p or not p.exists() or not p.is_file():
             self.send_error(404, "No file selected")
             return
@@ -852,6 +887,7 @@ class Handler(BaseHTTPRequestHandler):
             if not path_allowed(p) or not p.is_file():
                 return self.send_json({"error": "File not allowed"}, 403)
             STATE.selected = p
+            STATE.shared = []
             return self.send_json({"ok": True, "name": p.name})
         if u.path == "/api/clear-selection":
             STATE.selected = None
@@ -1004,6 +1040,18 @@ def selected_info():
         st = STATE.selected.stat()
         return {"name": STATE.selected.name, "path": str(STATE.selected), "size": st.st_size, "size_human": human_size(st.st_size)}
     return None
+
+
+def shared_info():
+    out = []
+    for i, p in enumerate(list(STATE.shared or [])):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        out.append({"i": i, "name": p.name, "size": st.st_size, "size_human": human_size(st.st_size),
+                    "image": p.suffix.lower() in steam_screens.IMAGE_EXTS})
+    return out
 
 
 def browse_info(path):
@@ -1246,6 +1294,7 @@ def _clip_ready(job):
         p = Path(job["path"])
         if p.is_file() and path_allowed(p):
             STATE.selected = p
+            STATE.shared = []
     except Exception:
         decky.logger.exception("DeckyShare could not select the exported clip")
 
@@ -1305,6 +1354,7 @@ class Plugin:
             "clip_export": _clip_job_snapshot(),
             "texts": TEXTS.snapshot(),
             "typing": TYPIST.snapshot(),
+            "shared": shared_info(),
         }
 
     async def shortcut_pairing_start(self, *args, **kwargs):
@@ -1331,6 +1381,7 @@ class Plugin:
         if not path_allowed(p) or not p.is_file():
             raise ValueError("File not allowed")
         STATE.selected = p
+        STATE.shared = []
         return {"ok": True, "selected": selected_info()}
 
     async def clear_selection(self, *args, **kwargs):
@@ -1392,6 +1443,57 @@ class Plugin:
         except steam_clips.ClipError as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "export": _clip_job_snapshot() or job}
+
+    async def list_screenshots(self, *args, **kwargs):
+        try:
+            items = await asyncio.to_thread(steam_screens.list_screenshots, Path(decky.DECKY_USER_HOME))
+        except Exception as exc:
+            decky.logger.exception("DeckyShare could not list screenshots")
+            return {"ok": False, "error": str(exc), "items": []}
+        for it in items:
+            it["size_human"] = human_size(it["size"])
+        return {"ok": True, "items": items}
+
+    async def screenshot_thumbnails(self, payload=None, *args, **kwargs):
+        ids = (payload or {}).get("ids") if isinstance(payload, dict) else kwargs.get("ids")
+        home = Path(decky.DECKY_USER_HOME)
+
+        def load():
+            out = {}
+            for sid in list(ids or [])[:24]:
+                if not steam_screens.is_screenshot(sid, home):
+                    continue
+                thumb = steam_screens.thumbnail_path(Path(sid))
+                try:
+                    if thumb.stat().st_size > steam_screens.MAX_THUMB_BYTES:
+                        continue
+                    mime = mimetypes.guess_type(thumb.name)[0] or "image/jpeg"
+                    out[sid] = f"data:{mime};base64," + base64.b64encode(thumb.read_bytes()).decode("ascii")
+                except OSError:
+                    continue
+            return out
+
+        return {"ok": True, "thumbs": await asyncio.to_thread(load)}
+
+    async def share_files(self, payload=None, *args, **kwargs):
+        paths = (payload or {}).get("paths") if isinstance(payload, dict) else kwargs.get("paths")
+        home = Path(decky.DECKY_USER_HOME)
+        chosen = []
+        for raw in list(paths or [])[:100]:
+            p = Path(str(raw)).expanduser()
+            if steam_screens.is_screenshot(p, home) or (path_allowed(p) and p.is_file()):
+                rp = p.resolve()
+                if rp not in chosen:
+                    chosen.append(rp)
+        if not chosen:
+            return {"ok": False, "error": "Nothing to share"}
+        STATE.shared = chosen
+        STATE.selected = None
+        return {"ok": True, "shared": shared_info()}
+
+    async def clear_shared(self, *args, **kwargs):
+        STATE.shared = []
+        return {"ok": True}
 
     async def send_text(self, payload=None, *args, **kwargs):
         text = payload.get("text") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("text"))

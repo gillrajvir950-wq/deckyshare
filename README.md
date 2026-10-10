@@ -15,6 +15,7 @@ or computer: it works in any browser.
 
 - **Phone / computer → Deck**: pick one or many files in the browser; they are saved in `~/Downloads/DeckShare/`.
 - **Deck → phone / computer**: pick a file in Gaming Mode and download it in the browser.
+- **Screenshots**: pick Steam screenshots in Gaming Mode and save them on your phone from a gallery.
 - **Clipboard**: send text and links between phone/PC and Deck, with one-tap Copy and Open.
 - **Game clips of any length**: turn Steam game recordings into MP4 in Gaming Mode and send them to your phone (Steam's own share is limited to 59 seconds).
 - **Connect in seconds**: scan the QR code with a phone, or open the short address on a computer and type the 6-digit code shown on the Deck.

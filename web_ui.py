@@ -22,8 +22,9 @@ header{display:flex;align-items:center;gap:10px;padding-top:4px}
 .status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#9fe0b8}
 .status i{width:7px;height:7px;border-radius:50%;background:var(--good)}
 .status.off{color:#ffd08a}.status.off i{background:var(--warn)}
-.tabs{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,.75fr);gap:4px;padding:4px;background:var(--card);border:1px solid var(--line);border-radius:14px}
-.tab{min-height:46px;border:0;border-radius:10px;background:transparent;color:#c9d6e3;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px}
+.tabs{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.38fr) minmax(0,.7fr);gap:4px;padding:4px;background:var(--card);border:1px solid var(--line);border-radius:14px}
+.tab{min-height:46px;border:0;border-radius:10px;background:transparent;color:#c9d6e3;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;padding:0 4px}
+.tab .badge{font-size:10px;padding:1px 6px}
 .tab[aria-selected=true]{background:var(--accent);color:var(--accent-ink);font-weight:800}
 .badge{font-size:11px;font-weight:800;color:var(--accent-ink);background:var(--warn);border-radius:999px;padding:1px 7px}
 .panel{display:flex;flex-direction:column;gap:14px}
@@ -104,6 +105,10 @@ header{display:flex;align-items:center;gap:10px;padding-top:4px}
 .chip{min-height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line2);background:#1d2b3b;color:var(--text);font-size:14px;font-weight:700;display:inline-flex;align-items:center;gap:6px;text-decoration:none}
 .chip.ok{border-color:#2f6b4a;color:var(--good)}
 .chip.del{width:38px;padding:0;justify-content:center;background:transparent;border-color:transparent}
+.gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.shot{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.shot img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:#0d151e;-webkit-touch-callout:default}
+.shot a{margin:8px;min-height:38px;border-radius:10px;border:1px solid var(--line2);background:#1d2b3b;color:var(--text);font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;text-decoration:none}
 footer{margin-top:6px;text-align:center;font-size:12px;color:var(--dim);line-height:1.6}
 footer code{color:#7cc4ff;font-size:12px}
 footer a{color:#7cc4ff}
@@ -150,6 +155,11 @@ _BODY = r"""<div class="wrap">
 <section id="panel-get" class="panel hidden" role="tabpanel" aria-labelledby="tab-get">
 <div id="selected"><div class="empty"><b>Nothing shared yet</b>Pick a file in DeckyShare on your Steam Deck. It will show up here.</div></div>
 <a id="download" class="primary hidden"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06121f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span>Download</span></a>
+<div id="gallerywrap" class="hidden">
+<div class="section-head"><b>Pictures from Deck</b><span id="gallerycount"></span></div>
+<div class="tip" style="margin:8px 0 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9aabbd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v14H4z"/><path d="M4 16l5-5 4 4 3-3 4 4"/></svg><span>On iPhone: press and hold a picture, then <b>Save to Photos</b>. Or tap Download.</span></div>
+<div id="gallery" class="gallery"></div>
+</div>
 <div id="transferswrap" class="hidden"><div class="section-head"><b>From Deck</b></div><div id="transfers" class="list" style="margin-top:8px"></div></div>
 </section>
 
@@ -233,7 +243,7 @@ document.getElementById('cancel').onclick=()=>{if(!uploadControl.running)return;
 
 _UI_JS = r"""
 const $=id=>document.getElementById(id);
-let picked=[],lastSelected=null,connOk=true;
+let picked=[],lastSelected=null,connOk=true,lastShared=null;
 function sizeText(n){return fmt(n);}
 function plural(n,w){return n+' '+w+(n===1?'':'s');}
 let currentTab='send';
@@ -331,7 +341,21 @@ async function refresh(){
       if(sel){$('selected').innerHTML=`<div class="file-card"><div class="file-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#9aabbd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></div><div class="meta" style="flex:1;min-width:0"><div class="xfer-name">${escapeHtml(sel.name)}</div><div class="xfer-size">${escapeHtml(sel.size_human)} · ready on your Deck</div></div></div>`;a.classList.remove('hidden');a.href='/download';}
       else{$('selected').innerHTML='<div class="empty"><b>Nothing shared yet</b>Pick a file in DeckyShare on your Steam Deck. It will show up here.</div>';a.classList.add('hidden');a.removeAttribute('href');}
     }
-    $('getbadge').classList.toggle('hidden',!sel);
+    const shared=Array.isArray(s.shared)?s.shared:[];
+    const skey=shared.map(x=>x.name+'|'+x.size).join('/');
+    if(skey!==lastShared){
+      lastShared=skey;
+      $('gallerywrap').classList.toggle('hidden',!shared.length);
+      $('gallerycount').textContent=shared.length?plural(shared.length,'file'):'';
+      const bust=Date.now();
+      $('gallery').innerHTML=shared.map(x=>x.image
+        ?`<div class="shot"><img src="/shared?i=${x.i}&v=${bust}" alt="${escapeHtml(x.name)}" loading="lazy"><a href="/download?i=${x.i}" download="${escapeHtml(x.name)}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c9d6e3" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M7 11l5 5 5-5"/></svg>Download</a></div>`
+        :`<div class="shot"><div class="item"><div class="meta"><span class="name">${escapeHtml(x.name)}</span><span class="sub">${escapeHtml(x.size_human)}</span></div></div><a href="/download?i=${x.i}">Download</a></div>`).join('');
+      if(shared.length&&!sel)$('selected').innerHTML='';
+      else if(!sel)$('selected').innerHTML='<div class="empty"><b>Nothing shared yet</b>Pick a file in DeckyShare on your Steam Deck. It will show up here.</div>';
+    }
+    $('getbadge').textContent=shared.length>1?String(shared.length):'1';
+    $('getbadge').classList.toggle('hidden',!sel&&!shared.length);
     if(s.texts_rev!==undefined&&s.texts_rev!==textsRev)applyTexts(s.texts,s.texts_rev);
     const downs=(s.transfers||[]).filter(x=>x.direction!=='upload');
     $('transferswrap').classList.toggle('hidden',!downs.length);
