@@ -36,9 +36,30 @@ const DialogButton = forwardRef(function DeckyShareDialogButton(props,ref){
 });
 
 function TextField(props){
+  // The Steam keyboard can change the text box without React noticing (for
+  // example its Paste key). React would then put the old text back on the next
+  // render, so listen to the box itself and report every change.
   const [focused,setFocused]=useState(false);
-  const {style,onFocus,onBlur,className,...rest}=props||{};
-  return h(BaseTextField,{...rest,className:`deckyshare-text-field${className?` ${className}`:""}`,style:{...style,...(focused?CONTROLLER_FOCUS_STYLE:{})},onFocus:e=>{setFocused(true);if(typeof onFocus==="function")onFocus(e);},onBlur:e=>{setFocused(false);if(typeof onBlur==="function")onBlur(e);}});
+  const elRef=useRef(null),propsRef=useRef(props);
+  propsRef.current=props;
+  const {style,onFocus,onBlur,className,value,uncontrolled,inputRef,...rest}=props||{};
+  function bind(el){
+    if(!el||elRef.current===el||typeof el.addEventListener!=="function")return;
+    elRef.current=el;
+    if(inputRef)inputRef.current=el;
+    const sync=()=>{
+      const p=propsRef.current;
+      if(typeof p.onChange!=="function")return;
+      if(p.uncontrolled||String(p.value==null?"":p.value)!==el.value)p.onChange({target:el,currentTarget:el});
+    };
+    ["input","change","keyup","compositionend"].forEach(t=>el.addEventListener(t,sync));
+    el.addEventListener("paste",()=>setTimeout(sync,0));
+  }
+  const fieldProps={...rest,className:`deckyshare-text-field${className?` ${className}`:""}`,style:{...style,...(focused?CONTROLLER_FOCUS_STYLE:{})},
+    onFocus:e=>{bind(e&&e.target);setFocused(true);if(typeof onFocus==="function")onFocus(e);},
+    onBlur:e=>{setFocused(false);if(typeof onBlur==="function")onBlur(e);}};
+  if(!uncontrolled)fieldProps.value=value;
+  return h(BaseTextField,fieldProps);
 }
 
 const NOTIFY_KEY = "deckyshare.notifications";
@@ -353,6 +374,7 @@ function makePanel(){
     const [clips,setClips]=useState(null),[clipThumbs,setClipThumbs]=useState({}),[clipLimit,setClipLimit]=useState(8),[clipBusy,setClipBusy]=useState(false);
     const clipJobRef=useRef(null);
     const [pasteHint,setPasteHint]=useState(null);
+    const composeRef=useRef(null);
     const [shots,setShots]=useState(null),[shotThumbs,setShotThumbs]=useState({}),[shotPicked,setShotPicked]=useState([]),[shotLimit,setShotLimit]=useState(12),[shotBusy,setShotBusy]=useState(false);
     const [textDraft,setTextDraft]=useState(""),[textBusy,setTextBusy]=useState(false),[textLimit,setTextLimit]=useState(4),[clearArmed,setClearArmed]=useState(false);
     const lastReceivedRef=useRef(null);
@@ -599,12 +621,14 @@ function makePanel(){
     useEffect(()=>{if(openSections.shots&&status)loadShots();},[openSections.shots,!!status]);
     useEffect(()=>{if(shots&&openSections.shots)loadShotThumbs(shots.slice(0,shotLimit));},[shots,shotLimit,openSections.shots]);
     async function sendText(){
-      const text=textDraft.trim();
+      const el=composeRef.current;
+      const text=String(el&&typeof el.value==="string"?el.value:textDraft).trim();
       if(!text||textBusy)return;
       setTextBusy(true);
       try{
         const r=await call("send_text",{text});
         if(!r||!r.ok)throw new Error(r&&r.error||"Could not send");
+        if(composeRef.current)composeRef.current.value="";
         setTextDraft("");setStatus(x=>({...x,texts:r.texts||x.texts}));
         toast(backendAPI,"Text sent • open the Text tab on your phone");
       }catch(e){setErr("Text: "+String(e&&e.message||e));}
@@ -633,7 +657,7 @@ function makePanel(){
       if(!ok)return;
       setPasteHint(t.id);
       setTimeout(()=>setPasteHint(x=>x===t.id?null:x),8000);
-      toast(backendAPI,"Copied • on the Steam keyboard, press and hold Paste");
+      toast(backendAPI,"Copied • tap Paste on the Steam keyboard");
     }
     function openLink(url){
       try{if(DeckyUI.Navigation&&typeof DeckyUI.Navigation.NavigateToExternalWeb==="function"){DeckyUI.Navigation.NavigateToExternalWeb(url);return;}}catch(e){}
@@ -798,9 +822,9 @@ function makePanel(){
 
       h(AccordionCard,{icon:"clipboard",tone:"amber",title:"Clipboard",sub:"Copy and paste between phone and Deck",badge:status.texts&&status.texts.length?status.texts.length:null,open:openSections.texts,onToggle:()=>toggleSection("texts")},
         h("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 64px",gap:6,alignItems:"center"}},
-          h(TextField,{value:textDraft,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
+          h(TextField,{uncontrolled:true,inputRef:composeRef,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
           h(MiniButton,{block:true,onClick:sendText},textBusy?"…":"Send")),
-        h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"Copy, then press and hold Paste on the Steam keyboard. Or select a text box first and press Type on Deck. On your phone, use the Text tab."),
+        h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"Copy, then tap Paste on the Steam keyboard in any text box. On your phone, use the Text tab."),
         (!status.texts||!status.texts.length)?h("div",{style:{opacity:.5,fontSize:11,padding:"8px 0 2px"}},"Nothing shared yet"):
         h("div",null,
           status.texts.slice(0,textLimit).map(t=>h("div",{key:t.id,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:11,padding:"8px 9px",margin:"6px 0"}},
@@ -812,7 +836,7 @@ function makePanel(){
             h(Focusable,{"flow-children":"horizontal",style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:5,marginTop:5}},
               t.link&&h(MiniButton,{compact:true,block:true,onClick:()=>openLink(t.text)},"Open link"),
               h(MiniButton,{compact:true,block:true,tone:"danger",onClick:()=>deleteText(t.id)},"Delete")),
-            pasteHint===t.id&&h("div",{style:{display:"flex",gap:6,alignItems:"flex-start",marginTop:7,padding:"6px 8px",borderRadius:8,background:"rgba(61,220,132,.08)",border:"1px solid rgba(61,220,132,.25)",color:"#a8ecc6",fontSize:9.5,lineHeight:1.4}},h(Icon,{name:"check",size:12}),h("span",null,h("b",null,"Copied. "),"On the Steam keyboard, press and hold ",h("b",null,"Paste"),". A short tap does not paste.")))),
+            pasteHint===t.id&&h("div",{style:{display:"flex",gap:6,alignItems:"flex-start",marginTop:7,padding:"6px 8px",borderRadius:8,background:"rgba(61,220,132,.08)",border:"1px solid rgba(61,220,132,.25)",color:"#a8ecc6",fontSize:9.5,lineHeight:1.4}},h(Icon,{name:"check",size:12}),h("span",null,h("b",null,"Copied. "),"Open any text box and tap ",h("b",null,"Paste")," on the Steam keyboard.")))),
           status.texts.length>textLimit&&h(DialogButton,{onClick:()=>setTextLimit(x=>x+6),style:{width:"100%",padding:"7px",marginTop:4,borderRadius:9,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#bde7ff",fontSize:10,fontWeight:700}},`Show more • ${textLimit} of ${status.texts.length}`),
           status.texts.length>1&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:clearTexts},clearArmed?"Press again to clear all":"Clear all")))
       ),

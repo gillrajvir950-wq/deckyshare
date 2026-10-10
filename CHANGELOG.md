@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.0-rc.6
+
+- Fixed: a single tap on **Paste** on the Steam keyboard did not paste into DeckyShare's text boxes (only press-and-hold worked). The keyboard changes the box directly and the panel used to put the old text back a moment later. Text boxes now keep whatever the keyboard puts in them.
+- The Copy hint now simply says to tap Paste on the Steam keyboard.
+
 ## v1.3.0-rc.5
 
 - Fixed the Clipboard layout on the Deck: the text box is wide again with a small Send button, and the item buttons sit two per row instead of one full-width button per row. Small buttons elsewhere (Received files, Screenshots) also keep their size.
