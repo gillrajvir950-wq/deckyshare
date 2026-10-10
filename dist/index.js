@@ -382,11 +382,12 @@ function makePanel() {
     }
     return function Panel() {
         const [status, setStatus] = useState(null), [roots, setRoots] = useState([]), [path, setPath] = useState(null), [parent, setParent] = useState(null), [items, setItems] = useState([]), [err, setErr] = useState(""), [connIndex, setConnIndex] = useState(0), [deleteArmed, setDeleteArmed] = useState(null), [notifyOn, setNotifyOn] = useState(notificationsEnabled()), [copied, setCopied] = useState(false), [copiedPath, setCopiedPath] = useState(null), [updateInfo, setUpdateInfo] = useState(null), [updateBusy, setUpdateBusy] = useState(false), [updateArmed, setUpdateArmed] = useState(false), [rollbackArmed, setRollbackArmed] = useState(false), [browseQuery, setBrowseQuery] = useState(""), [browseSort, setBrowseSort] = useState("name"), [fmStorage, setFmStorage] = useState(null), [fmSelect, setFmSelect] = useState(false), [fmPicked, setFmPicked] = useState([]), [fmClip, setFmClip] = useState(null), [fmBusy, setFmBusy] = useState(false), [fmNew, setFmNew] = useState(""), [fmRename, setFmRename] = useState(null), [fmRenameValue, setFmRenameValue] = useState(""), [fmInfo, setFmInfo] = useState(null), [fmTrashArmed, setFmTrashArmed] = useState(false), [browseLimit, setBrowseLimit] = useState(50), [fmMenu, setFmMenu] = useState(false);
-        const [openSections, setOpenSections] = useState({ browse: false, clips: false, texts: false, received: false, updates: false, support: false, wifi: false });
+        const [openSections, setOpenSections] = useState({ browse: false, shots: false, clips: false, texts: false, received: false, updates: false, support: false, wifi: false });
         const [showQr, setShowQr] = useState(false), [cancelArmed, setCancelArmed] = useState(null);
         const [clips, setClips] = useState(null), [clipThumbs, setClipThumbs] = useState({}), [clipLimit, setClipLimit] = useState(8), [clipBusy, setClipBusy] = useState(false);
         const clipJobRef = useRef(null);
         const [pasteHint, setPasteHint] = useState(null);
+        const [shots, setShots] = useState(null), [shotThumbs, setShotThumbs] = useState({}), [shotPicked, setShotPicked] = useState([]), [shotLimit, setShotLimit] = useState(12), [shotBusy, setShotBusy] = useState(false);
         const [textDraft, setTextDraft] = useState(""), [textBusy, setTextBusy] = useState(false), [textLimit, setTextLimit] = useState(4), [clearArmed, setClearArmed] = useState(false);
         const lastReceivedRef = useRef(null);
         const transferStatesRef = useRef(new Map());
@@ -861,6 +862,62 @@ function makePanel() {
                 setErr("Clip: " + String(e && e.message || e));
             }
         }
+        async function loadShots() {
+            if (shotBusy)
+                return;
+            setShotBusy(true);
+            try {
+                const r = await call("list_screenshots");
+                if (!r || !r.ok)
+                    throw new Error(r && r.error || "Could not read screenshots");
+                setShots(r.items || []);
+            }
+            catch (e) {
+                setShots([]);
+                setErr("Screenshots: " + String(e && e.message || e));
+            }
+            finally {
+                setShotBusy(false);
+            }
+        }
+        async function loadShotThumbs(list) {
+            const need = list.filter(x => x && !shotThumbs[x.id]).map(x => x.id);
+            for (let i = 0; i < need.length; i += 12) {
+                try {
+                    const r = await call("screenshot_thumbnails", { ids: need.slice(i, i + 12) });
+                    if (r && r.thumbs)
+                        setShotThumbs(t => ({ ...t, ...r.thumbs }));
+                }
+                catch (e) { }
+            }
+        }
+        function toggleShot(id) { setShotPicked(v => v.includes(id) ? v.filter(x => x !== id) : [...v, id]); }
+        async function sendShots() {
+            if (!shotPicked.length)
+                return;
+            try {
+                const r = await call("share_files", { paths: shotPicked });
+                if (!r || !r.ok)
+                    throw new Error(r && r.error || "Could not share");
+                toast(backendAPI, `${shotPicked.length} picture${shotPicked.length === 1 ? "" : "s"} ready • open Get from Deck on your phone`);
+                setShotPicked([]);
+                await refreshStatus();
+            }
+            catch (e) {
+                setErr("Screenshots: " + String(e && e.message || e));
+            }
+        }
+        async function clearShared() { try {
+            await call("clear_shared");
+            await refreshStatus();
+        }
+        catch (e) {
+            setErr("Screenshots: " + String(e && e.message || e));
+        } }
+        useEffect(() => { if (openSections.shots && status)
+            loadShots(); }, [openSections.shots, !!status]);
+        useEffect(() => { if (shots && openSections.shots)
+            loadShotThumbs(shots.slice(0, shotLimit)); }, [shots, shotLimit, openSections.shots]);
         async function sendText() {
             const text = textDraft.trim();
             if (!text || textBusy)
@@ -1019,7 +1076,22 @@ function makePanel() {
                 setErr("Rename: select one item"); } }, "Rename"), h(MiniButton, { onClick: () => fmChosen.length === 1 ? fmDetails(fmChosen[0]) : setErr("Details: select one item") }, "Details"), h(MiniButton, { onClick: () => { if (fmChosen.length === 1 && fmChosen[0].type === "file")
                 selectFile(fmChosen[0].path);
             else
-                setErr("Share: select one file"); } }, "Share"), h(MiniButton, { onClick: fmTrash, tone: "danger" }, fmTrashArmed ? "Tap again" : "Trash"))))), h(AccordionCard, { icon: "film", tone: "pink", title: "Game clips", sub: "Any length, straight to your phone", open: openSections.clips, onToggle: () => toggleSection("clips") }, clips === null ? h("div", { style: { opacity: .55, fontSize: 12, padding: "4px 0" } }, "Looking for game recordings…") :
+                setErr("Share: select one file"); } }, "Share"), h(MiniButton, { onClick: fmTrash, tone: "danger" }, fmTrashArmed ? "Tap again" : "Trash"))))), h(AccordionCard, { icon: "image", tone: "blue", title: "Screenshots", sub: "Pick pictures and send them to your phone", badge: shotPicked.length ? shotPicked.length : null, open: openSections.shots, onToggle: () => toggleSection("shots") }, shots === null ? h("div", { style: { opacity: .55, fontSize: 12, padding: "4px 0" } }, "Looking for screenshots…") :
+            !shots.length ? h("div", { style: { fontSize: 11, opacity: .62, lineHeight: 1.4, padding: "2px 0" } }, "No screenshots yet. Press STEAM + R1 in a game to take one.") :
+                h("div", null, status.shared && status.shared.length > 0 && h("div", { style: { display: "flex", alignItems: "center", gap: 7, padding: "7px 9px", marginBottom: 8, borderRadius: 9, background: "rgba(61,220,132,.08)", border: "1px solid rgba(61,220,132,.25)", color: "#a8ecc6", fontSize: 10, lineHeight: 1.35 } }, h(Icon, { name: "check", size: 12 }), h("span", { style: { flex: 1 } }, `${status.shared.length} on your phone under Get from Deck`), h(MiniButton, { compact: true, onClick: clearShared }, "Stop sharing")), (() => {
+                    const visible = shots.slice(0, shotLimit), groups = [];
+                    for (const it of visible) {
+                        const g = groups[groups.length - 1];
+                        if (g && g.appid === it.appid)
+                            g.items.push(it);
+                        else
+                            groups.push({ appid: it.appid, items: [it] });
+                    }
+                    return groups.map((g, gi) => h("div", { key: g.appid + "-" + gi }, h("div", { style: { fontSize: 10, fontWeight: 760, opacity: .7, margin: gi ? "10px 2px 5px" : "0 2px 5px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, clipGameName(g.appid)), Array.from({ length: Math.ceil(g.items.length / 3) }, (_, r) => h(Focusable, { key: r, "flow-children": "horizontal", style: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5, marginBottom: 5 } }, g.items.slice(r * 3, r * 3 + 3).map(it => {
+                        const on = shotPicked.includes(it.id);
+                        return h(DialogButton, { key: it.id, onClick: () => toggleShot(it.id), style: { position: "relative", minWidth: 0, minHeight: 0, padding: 0, margin: 0, borderRadius: 8, overflow: "hidden", border: on ? "2px solid #66c0f4" : "2px solid transparent", background: "rgba(255,255,255,.04)", aspectRatio: "16 / 10" } }, shotThumbs[it.id] ? h("img", { src: shotThumbs[it.id], style: { width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: on ? .75 : 1 } }) : h("div", { style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#7cc4ff" } }, h(Icon, { name: "image", size: 16 })), on && h("div", { style: { position: "absolute", top: 3, right: 3, width: 18, height: 18, borderRadius: "50%", background: "#1a9fff", color: "#06121f", display: "flex", alignItems: "center", justifyContent: "center" } }, h(Icon, { name: "check", size: 12, strokeWidth: 3 })));
+                    })))));
+                })(), shots.length > shotLimit && h(DialogButton, { onClick: () => setShotLimit(x => x + 12), style: { width: "100%", padding: "7px", marginTop: 4, borderRadius: 9, border: "1px solid rgba(120,180,255,.16)", background: "rgba(255,255,255,.025)", color: "#bde7ff", fontSize: 10, fontWeight: 700 } }, `Show more • ${shotLimit} of ${shots.length}`), h("div", { style: { display: "grid", gridTemplateColumns: shotPicked.length ? "1fr auto" : "1fr", gap: 6, marginTop: 8 } }, h(DialogButton, { disabled: !shotPicked.length, onClick: sendShots, style: { minHeight: 0, padding: "9px 10px", borderRadius: 10, border: "1px solid rgba(102,192,244,.4)", background: shotPicked.length ? "#1a9fff" : "rgba(255,255,255,.04)", color: shotPicked.length ? "#06121f" : "#8ea2b8", fontSize: 12, fontWeight: 800, textAlign: "center" } }, shotPicked.length ? `Send ${shotPicked.length} to phone` : "Tap pictures to select"), shotPicked.length > 0 && h(MiniButton, { onClick: () => setShotPicked([]) }, "Clear")))), h(AccordionCard, { icon: "film", tone: "pink", title: "Game clips", sub: "Any length, straight to your phone", open: openSections.clips, onToggle: () => toggleSection("clips") }, clips === null ? h("div", { style: { opacity: .55, fontSize: 12, padding: "4px 0" } }, "Looking for game recordings…") :
             !clips.length ? h("div", { style: { fontSize: 11, opacity: .62, lineHeight: 1.4, padding: "2px 0" } }, "No clips found. Record in a game (Steam button › Game Recording), save a clip, then come back here.") :
                 h("div", null, clips.slice(0, clipLimit).map((c, i) => {
                     const job = status.clip_export && status.clip_export.id === c.id ? status.clip_export : null;
