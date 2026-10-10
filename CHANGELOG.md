@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.0-rc.5
+
+- Fixed the Clipboard layout on the Deck: the text box is wide again with a small Send button, and the item buttons sit two per row instead of one full-width button per row. Small buttons elsewhere (Received files, Screenshots) also keep their size.
+
 ## v1.3.0-rc.4
 
 - **Screenshots**: a new section shows your Steam screenshots grouped by game. Tap to pick one or many, press **Send to phone**, and they appear as a gallery on the phone page under **Get from Deck**. On iPhone, press and hold a picture and choose Save to Photos, or tap Download.
