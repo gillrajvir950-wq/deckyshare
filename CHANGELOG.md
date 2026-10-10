@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.0-rc.2
+
+- **Type on Deck**: Gaming Mode has no reliable paste, so each Clipboard item now has **Type on Deck**. Select a text box (in a game, the Steam browser, a login field), open DeckyShare, press Type on Deck: the menu closes and DeckyShare types the text into the box through a temporary virtual keyboard (US layout; characters a keyboard can't type are skipped).
+
 ## v1.3.0-rc.1
 
 - **Clipboard**: send text and links between your phone/PC and the Deck. On the phone page use the new **Text** tab; on the Deck use the **Clipboard** section. Every item has Copy (and Open for links), the Deck shows a notification when text arrives, and the last 30 items are kept.

@@ -25,6 +25,7 @@ from transfer_integrity import (
 from web_ui import html_page, pair_page_html
 import steam_clips
 import text_share
+import deck_keyboard
 from share_sheet import (
     authorized as share_sheet_authorized,
     load_or_create_share_key,
@@ -382,6 +383,7 @@ SPEED_WINDOW_SECONDS = 3.0
 STALL_AFTER_SECONDS = 2.0
 STATE = State()
 CLIPS = steam_clips.ClipExporter()
+TYPIST = deck_keyboard.Typist()
 _START_SERVER_LOCK = threading.Lock()
 
 
@@ -1302,6 +1304,7 @@ class Plugin:
             "received": STATE.received_snapshot(),
             "clip_export": _clip_job_snapshot(),
             "texts": TEXTS.snapshot(),
+            "typing": TYPIST.snapshot(),
         }
 
     async def shortcut_pairing_start(self, *args, **kwargs):
@@ -1402,6 +1405,22 @@ class Plugin:
         tid = payload.get("id") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("id"))
         TEXTS.delete(str(tid or ""))
         return {"ok": True, "texts": TEXTS.snapshot()}
+
+    async def type_text(self, payload=None, *args, **kwargs):
+        opts = payload if isinstance(payload, dict) else kwargs
+        text = opts.get("text") if isinstance(opts, dict) else payload
+        if not text and isinstance(opts, dict) and opts.get("id"):
+            match = [t for t in TEXTS.snapshot() if t.get("id") == opts.get("id")]
+            text = match[0]["text"] if match else ""
+        try:
+            job = TYPIST.start(str(text or ""), float((opts or {}).get("delay", 1.5)) if isinstance(opts, dict) else 1.5)
+        except deck_keyboard.KeyboardError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "typing": job}
+
+    async def cancel_typing(self, *args, **kwargs):
+        TYPIST.stop()
+        return {"ok": True}
 
     async def clear_texts(self, *args, **kwargs):
         TEXTS.clear()

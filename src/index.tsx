@@ -586,6 +586,18 @@ function makePanel(){
       setClearArmed(false);
       try{await call("clear_texts");setStatus(x=>({...x,texts:[]}));}catch(e){setErr("Text: "+String(e&&e.message||e));}
     }
+    async function typeOnDeck(t){
+      const job=status&&status.typing;
+      if(job&&(job.state==="waiting"||job.state==="typing"))return;
+      try{
+        const r=await call("type_text",{id:t.id,delay:1.5});
+        if(!r||!r.ok)throw new Error(r&&r.error||"Could not type");
+        setStatus(x=>({...x,typing:r.typing}));
+        if(r.typing&&r.typing.skipped)toast(backendAPI,`${r.typing.skipped} special character(s) can't be typed and will be skipped`);
+        // Close the menu so the text goes into the box you selected before.
+        try{if(DeckyUI.Navigation&&typeof DeckyUI.Navigation.CloseSideMenus==="function")DeckyUI.Navigation.CloseSideMenus();}catch(e){}
+      }catch(e){setErr("Type: "+String(e&&e.message||e));}
+    }
     function openLink(url){
       try{if(DeckyUI.Navigation&&typeof DeckyUI.Navigation.NavigateToExternalWeb==="function"){DeckyUI.Navigation.NavigateToExternalWeb(url);return;}}catch(e){}
       try{window.open(url,"_blank");}catch(e){setErr("Open link failed");}
@@ -600,6 +612,8 @@ function makePanel(){
       if(job&&job.state==="error"&&prev&&prev.state==="working")setErr("Clip: "+String(job.error||"failed"));
       clipJobRef.current=job?{id:job.id,state:job.state}:null;
     },[status&&status.clip_export&&status.clip_export.state,status&&status.clip_export&&status.clip_export.id]);
+    const typingState=status&&status.typing&&status.typing.state;
+    useEffect(()=>{const j=status&&status.typing;if(typingState==="error"&&j&&j.error&&j.error!=="Cancelled")setErr("Type: "+j.error);},[typingState]);
     useEffect(()=>{bootstrap();},[]);
     useEffect(()=>{if(!status)return;loadWifi();checkUpdate(false);},[!!status]);
     async function cancelTransfer(t){
@@ -725,13 +739,14 @@ function makePanel(){
         h("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:6,alignItems:"center"}},
           h(TextField,{value:textDraft,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
           h(MiniButton,{onClick:sendText},textBusy?"Sending…":"Send")),
-        h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,margin:"6px 1px 4px"}},"On your phone, open the Text tab to send to the Deck or to copy what you sent."),
+        h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"To put text into a game or text box: select the box first, then open DeckyShare and press Type on Deck. On your phone, use the Text tab."),
         (!status.texts||!status.texts.length)?h("div",{style:{opacity:.5,fontSize:11,padding:"8px 0 2px"}},"Nothing shared yet"):
         h("div",null,
           status.texts.slice(0,textLimit).map(t=>h("div",{key:t.id,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:11,padding:"8px 9px",margin:"6px 0"}},
             h("div",{style:{fontSize:11,lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:"5.6em",overflow:"hidden",color:t.link?"#9ed6ff":"white"}},t.text),
             h("div",{style:{fontSize:9,opacity:.5,marginTop:4}},`${t.from==="Deck"?"From this Deck":`From ${t.from}`} · ${timeAgo(t.at)}`),
             h("div",{style:{display:"flex",gap:5,marginTop:6,flexWrap:"wrap"}},
+              h(MiniButton,{compact:true,onClick:()=>typeOnDeck(t)},status.typing&&status.typing.state==="waiting"?"Get ready…":(status.typing&&status.typing.state==="typing"?`Typing ${status.typing.done}/${status.typing.total}`:"Type on Deck")),
               h(MiniButton,{compact:true,onClick:()=>copyText(t.text,"Text")},copiedPath===t.text?"✓ Copied":"Copy"),
               t.link&&h(MiniButton,{compact:true,onClick:()=>openLink(t.text)},"Open link"),
               h(MiniButton,{compact:true,tone:"danger",onClick:()=>deleteText(t.id)},"Delete")))),
