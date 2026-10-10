@@ -648,8 +648,7 @@ function makePanel(){
           if(!r||!r.ok)throw new Error(r&&r.error||"Clipboard is empty");
           text=r.text;how=r.how;
         }
-        const el=composeRef.current;
-        if(el){el.value=text;try{el.focus();}catch(e){}}
+        // The box shows textDraft, so this works even if it was never tapped.
         setTextDraft(text);
         if(isRc)logInput(`Paste button: ${String(text).length} chars via ${how}`);
       }catch(e){setErr("Paste: "+String(e&&e.message||e));}
@@ -657,7 +656,8 @@ function makePanel(){
     }
     async function sendText(){
       const el=composeRef.current;
-      const text=String(el&&typeof el.value==="string"?el.value:textDraft).trim();
+      const domText=el&&typeof el.value==="string"?el.value:"";
+      const text=String(textDraft||domText).trim();
       if(!text||textBusy)return;
       setTextBusy(true);
       try{
@@ -871,7 +871,7 @@ function makePanel(){
 
       h(AccordionCard,{icon:"clipboard",tone:"amber",title:"Clipboard",sub:"Copy and paste between phone and Deck",badge:status.texts&&status.texts.length?status.texts.length:null,open:openSections.texts,onToggle:()=>toggleSection("texts")},
         h(Focusable,{"flow-children":"horizontal",style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 54px 54px",gap:5,alignItems:"center"}},
-          h(TextField,{uncontrolled:true,inputRef:composeRef,debugLog:String(status.version||"").includes("-rc")?logInput:undefined,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
+          h(TextField,{value:textDraft,inputRef:composeRef,debugLog:String(status.version||"").includes("-rc")?logInput:undefined,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
           h(MiniButton,{block:true,onClick:pasteFromDeck},pasteBusy?"…":"Paste"),
           h(MiniButton,{block:true,onClick:sendText},textBusy?"…":"Send")),
         String(status.version||"").includes("-rc")&&inputLog.length>0&&h("div",{style:{margin:"6px 0 2px",padding:"5px 7px",borderRadius:7,background:"rgba(0,0,0,.35)",fontFamily:"monospace",fontSize:8.5,lineHeight:1.35,color:"#c9d6e3"}},h("div",{style:{opacity:.6,marginBottom:2}},"Paste test (test builds only)"),inputLog.map((l,i)=>h("div",{key:i},l))),

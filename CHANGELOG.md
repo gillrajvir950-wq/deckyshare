@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.0-rc.9
+
+- Fixed: the Paste button read the clipboard but the text did not show in the box unless the box had been tapped first.
+
 ## v1.3.0-rc.8
 
 - **Paste button** in the Clipboard section. The Steam keyboard's Paste key does not reach text boxes inside the Decky menu, so DeckyShare now reads the Deck clipboard itself: press Paste and the box fills with whatever you copied on the Deck (in DeckyShare, the Steam browser or anywhere in Steam).
