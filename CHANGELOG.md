@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.0-rc.3
+
+- After **Copy** in the Clipboard section, DeckyShare now explains how to paste in Gaming Mode: press and hold **Paste** on the Steam keyboard (a short tap does not paste).
+
 ## v1.3.0-rc.2
 
 - **Type on Deck**: Gaming Mode has no reliable paste, so each Clipboard item now has **Type on Deck**. Select a text box (in a game, the Steam browser, a login field), open DeckyShare, press Type on Deck: the menu closes and DeckyShare types the text into the box through a temporary virtual keyboard (US layout; characters a keyboard can't type are skipped).

@@ -350,6 +350,7 @@ function makePanel(){
     const [showQr,setShowQr]=useState(false),[cancelArmed,setCancelArmed]=useState(null);
     const [clips,setClips]=useState(null),[clipThumbs,setClipThumbs]=useState({}),[clipLimit,setClipLimit]=useState(8),[clipBusy,setClipBusy]=useState(false);
     const clipJobRef=useRef(null);
+    const [pasteHint,setPasteHint]=useState(null);
     const [textDraft,setTextDraft]=useState(""),[textBusy,setTextBusy]=useState(false),[textLimit,setTextLimit]=useState(4),[clearArmed,setClearArmed]=useState(false);
     const lastReceivedRef=useRef(null);
     const transferStatesRef=useRef(new Map());
@@ -598,6 +599,13 @@ function makePanel(){
         try{if(DeckyUI.Navigation&&typeof DeckyUI.Navigation.CloseSideMenus==="function")DeckyUI.Navigation.CloseSideMenus();}catch(e){}
       }catch(e){setErr("Type: "+String(e&&e.message||e));}
     }
+    async function copyClipboardItem(t){
+      const ok=await copyText(t.text,"Text");
+      if(!ok)return;
+      setPasteHint(t.id);
+      setTimeout(()=>setPasteHint(x=>x===t.id?null:x),8000);
+      toast(backendAPI,"Copied • on the Steam keyboard, press and hold Paste");
+    }
     function openLink(url){
       try{if(DeckyUI.Navigation&&typeof DeckyUI.Navigation.NavigateToExternalWeb==="function"){DeckyUI.Navigation.NavigateToExternalWeb(url);return;}}catch(e){}
       try{window.open(url,"_blank");}catch(e){setErr("Open link failed");}
@@ -739,7 +747,7 @@ function makePanel(){
         h("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:6,alignItems:"center"}},
           h(TextField,{value:textDraft,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
           h(MiniButton,{onClick:sendText},textBusy?"Sending…":"Send")),
-        h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"To put text into a game or text box: select the box first, then open DeckyShare and press Type on Deck. On your phone, use the Text tab."),
+        h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"Copy, then press and hold Paste on the Steam keyboard. Or select a text box first and press Type on Deck. On your phone, use the Text tab."),
         (!status.texts||!status.texts.length)?h("div",{style:{opacity:.5,fontSize:11,padding:"8px 0 2px"}},"Nothing shared yet"):
         h("div",null,
           status.texts.slice(0,textLimit).map(t=>h("div",{key:t.id,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:11,padding:"8px 9px",margin:"6px 0"}},
@@ -747,9 +755,10 @@ function makePanel(){
             h("div",{style:{fontSize:9,opacity:.5,marginTop:4}},`${t.from==="Deck"?"From this Deck":`From ${t.from}`} · ${timeAgo(t.at)}`),
             h("div",{style:{display:"flex",gap:5,marginTop:6,flexWrap:"wrap"}},
               h(MiniButton,{compact:true,onClick:()=>typeOnDeck(t)},status.typing&&status.typing.state==="waiting"?"Get ready…":(status.typing&&status.typing.state==="typing"?`Typing ${status.typing.done}/${status.typing.total}`:"Type on Deck")),
-              h(MiniButton,{compact:true,onClick:()=>copyText(t.text,"Text")},copiedPath===t.text?"✓ Copied":"Copy"),
+              h(MiniButton,{compact:true,onClick:()=>copyClipboardItem(t)},copiedPath===t.text?"✓ Copied":"Copy"),
               t.link&&h(MiniButton,{compact:true,onClick:()=>openLink(t.text)},"Open link"),
-              h(MiniButton,{compact:true,tone:"danger",onClick:()=>deleteText(t.id)},"Delete")))),
+              h(MiniButton,{compact:true,tone:"danger",onClick:()=>deleteText(t.id)},"Delete")),
+            pasteHint===t.id&&h("div",{style:{display:"flex",gap:6,alignItems:"flex-start",marginTop:7,padding:"6px 8px",borderRadius:8,background:"rgba(61,220,132,.08)",border:"1px solid rgba(61,220,132,.25)",color:"#a8ecc6",fontSize:9.5,lineHeight:1.4}},h(Icon,{name:"check",size:12}),h("span",null,h("b",null,"Copied. "),"On the Steam keyboard, press and hold ",h("b",null,"Paste"),". A short tap does not paste.")))),
           status.texts.length>textLimit&&h(DialogButton,{onClick:()=>setTextLimit(x=>x+6),style:{width:"100%",padding:"7px",marginTop:4,borderRadius:9,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#bde7ff",fontSize:10,fontWeight:700}},`Show more • ${textLimit} of ${status.texts.length}`),
           status.texts.length>1&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:clearTexts},clearArmed?"Press again to clear all":"Clear all")))
       ),
