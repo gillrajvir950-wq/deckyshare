@@ -383,6 +383,7 @@ function makePanel(){
     const clipJobRef=useRef(null);
     const [pasteHint,setPasteHint]=useState(null);
     const composeRef=useRef(null);
+    const [pasteBusy,setPasteBusy]=useState(false);
     const [typingLocal,setTypingLocal]=useState(false),[inputLog,setInputLog]=useState([]);
     const logInput=line=>setInputLog(v=>[...v.slice(-7),line]);
     const [shots,setShots]=useState(null),[shotThumbs,setShotThumbs]=useState({}),[shotPicked,setShotPicked]=useState([]),[shotLimit,setShotLimit]=useState(12),[shotBusy,setShotBusy]=useState(false);
@@ -630,6 +631,30 @@ function makePanel(){
     async function clearShared(){try{await call("clear_shared");await refreshStatus();}catch(e){setErr("Screenshots: "+String(e&&e.message||e));}}
     useEffect(()=>{if(openSections.shots&&status)loadShots();},[openSections.shots,!!status]);
     useEffect(()=>{if(shots&&openSections.shots)loadShotThumbs(shots.slice(0,shotLimit));},[shots,shotLimit,openSections.shots]);
+    async function pasteFromDeck(){
+      if(pasteBusy)return;
+      setPasteBusy(true);
+      const isRc=String(status&&status.version||"").includes("-rc");
+      try{
+        let text=null,how="";
+        try{
+          if(navigator.clipboard&&typeof navigator.clipboard.readText==="function"){
+            text=await Promise.race([navigator.clipboard.readText(),new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),1200))]);
+            how="browser";
+          }
+        }catch(e){if(isRc)logInput("browser clipboard: "+String(e&&e.message||e).slice(0,60));}
+        if(!text){
+          const r=await call("read_clipboard");
+          if(!r||!r.ok)throw new Error(r&&r.error||"Clipboard is empty");
+          text=r.text;how=r.how;
+        }
+        const el=composeRef.current;
+        if(el){el.value=text;try{el.focus();}catch(e){}}
+        setTextDraft(text);
+        if(isRc)logInput(`Paste button: ${String(text).length} chars via ${how}`);
+      }catch(e){setErr("Paste: "+String(e&&e.message||e));}
+      finally{setPasteBusy(false);}
+    }
     async function sendText(){
       const el=composeRef.current;
       const text=String(el&&typeof el.value==="string"?el.value:textDraft).trim();
@@ -845,11 +870,12 @@ function makePanel(){
       ),
 
       h(AccordionCard,{icon:"clipboard",tone:"amber",title:"Clipboard",sub:"Copy and paste between phone and Deck",badge:status.texts&&status.texts.length?status.texts.length:null,open:openSections.texts,onToggle:()=>toggleSection("texts")},
-        h("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 64px",gap:6,alignItems:"center"}},
+        h(Focusable,{"flow-children":"horizontal",style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 54px 54px",gap:5,alignItems:"center"}},
           h(TextField,{uncontrolled:true,inputRef:composeRef,debugLog:String(status.version||"").includes("-rc")?logInput:undefined,onChange:e=>setTextDraft(e.target.value),placeholder:"Type text or a link for your phone",style:{minWidth:0,width:"100%",boxSizing:"border-box",padding:"9px 10px",borderRadius:10,border:"1px solid rgba(255,190,90,.22)",background:"rgba(7,17,29,.48)",color:"white",fontSize:11,outline:"none"}}),
+          h(MiniButton,{block:true,onClick:pasteFromDeck},pasteBusy?"…":"Paste"),
           h(MiniButton,{block:true,onClick:sendText},textBusy?"…":"Send")),
         String(status.version||"").includes("-rc")&&inputLog.length>0&&h("div",{style:{margin:"6px 0 2px",padding:"5px 7px",borderRadius:7,background:"rgba(0,0,0,.35)",fontFamily:"monospace",fontSize:8.5,lineHeight:1.35,color:"#c9d6e3"}},h("div",{style:{opacity:.6,marginBottom:2}},"Paste test (test builds only)"),inputLog.map((l,i)=>h("div",{key:i},l))),
-        h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"Copy, then tap Paste on the Steam keyboard in any text box. On your phone, use the Text tab."),
+        h("div",{style:{fontSize:9,opacity:.5,lineHeight:1.45,margin:"6px 1px 4px"}},"Copy puts text on the Deck clipboard. Paste here fills the box from it. In other apps, tap Paste on the Steam keyboard. On your phone, use the Text tab."),
         (!status.texts||!status.texts.length)?h("div",{style:{opacity:.5,fontSize:11,padding:"8px 0 2px"}},"Nothing shared yet"):
         h("div",null,
           status.texts.slice(0,textLimit).map(t=>h("div",{key:t.id,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:11,padding:"8px 9px",margin:"6px 0"}},
@@ -861,7 +887,7 @@ function makePanel(){
             h(Focusable,{"flow-children":"horizontal",style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:5,marginTop:5}},
               t.link&&h(MiniButton,{compact:true,block:true,onClick:()=>openLink(t.text)},"Open link"),
               h(MiniButton,{compact:true,block:true,tone:"danger",onClick:()=>deleteText(t.id)},"Delete")),
-            pasteHint===t.id&&h("div",{style:{display:"flex",gap:6,alignItems:"flex-start",marginTop:7,padding:"6px 8px",borderRadius:8,background:"rgba(61,220,132,.08)",border:"1px solid rgba(61,220,132,.25)",color:"#a8ecc6",fontSize:9.5,lineHeight:1.4}},h(Icon,{name:"check",size:12}),h("span",null,h("b",null,"Copied. "),"Open any text box and tap ",h("b",null,"Paste")," on the Steam keyboard.")))),
+            pasteHint===t.id&&h("div",{style:{display:"flex",gap:6,alignItems:"flex-start",marginTop:7,padding:"6px 8px",borderRadius:8,background:"rgba(61,220,132,.08)",border:"1px solid rgba(61,220,132,.25)",color:"#a8ecc6",fontSize:9.5,lineHeight:1.4}},h(Icon,{name:"check",size:12}),h("span",null,h("b",null,"Copied. "),"In another app, tap ",h("b",null,"Paste")," on the Steam keyboard.")))),
           status.texts.length>textLimit&&h(DialogButton,{onClick:()=>setTextLimit(x=>x+6),style:{width:"100%",padding:"7px",marginTop:4,borderRadius:9,border:"1px solid rgba(120,180,255,.16)",background:"rgba(255,255,255,.025)",color:"#bde7ff",fontSize:10,fontWeight:700}},`Show more • ${textLimit} of ${status.texts.length}`),
           status.texts.length>1&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:clearTexts},clearArmed?"Press again to clear all":"Clear all")))
       ),

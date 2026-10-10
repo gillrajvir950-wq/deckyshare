@@ -26,6 +26,7 @@ from web_ui import html_page, pair_page_html
 import steam_clips
 import text_share
 import deck_keyboard
+import deck_clipboard
 import steam_screens
 from share_sheet import (
     authorized as share_sheet_authorized,
@@ -1519,6 +1520,15 @@ class Plugin:
         except deck_keyboard.KeyboardError as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "typing": job}
+
+    async def read_clipboard(self, *args, **kwargs):
+        try:
+            text, how = await asyncio.wait_for(asyncio.to_thread(deck_clipboard.read_clipboard), timeout=6)
+        except Exception as exc:  # noqa: BLE001 - shown in the panel
+            return {"ok": False, "error": f"Could not read the clipboard: {exc}"}
+        if text is None:
+            return {"ok": False, "error": how}
+        return {"ok": True, "text": text[:text_share.MAX_CHARS], "how": how}
 
     async def cancel_typing(self, *args, **kwargs):
         TYPIST.stop()

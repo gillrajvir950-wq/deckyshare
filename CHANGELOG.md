@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.0-rc.8
+
+- **Paste button** in the Clipboard section. The Steam keyboard's Paste key does not reach text boxes inside the Decky menu, so DeckyShare now reads the Deck clipboard itself: press Paste and the box fills with whatever you copied on the Deck (in DeckyShare, the Steam browser or anywhere in Steam).
+
 ## v1.3.0-rc.7
 
 - **Type on Deck** now uses Steam's own keyboard input (the same way other Decky plugins type text), so it needs no special permissions and works in games and Steam alike. The virtual keyboard is only a fallback for older Steam versions.
