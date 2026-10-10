@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.2.0-rc.1
+## v1.2.0
 
 - **Game clips**: a new "Game clips" section lists your Steam game recordings. Tap one and DeckyShare turns it into a regular MP4 (no re-encoding, same quality) and offers it on the phone page under **Get from Deck**. Works in Gaming Mode and for clips of any length (Steam itself only sends clips up to 59 seconds to a phone). A copy is kept in `Videos/Steam Clips`.
 
