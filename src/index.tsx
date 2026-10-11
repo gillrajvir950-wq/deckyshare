@@ -383,6 +383,7 @@ function makePanel(){
     const clipJobRef=useRef(null);
     const [pasteHint,setPasteHint]=useState(null);
     const composeRef=useRef(null);
+    const [romMoving,setRomMoving]=useState(null);
     const [pasteBusy,setPasteBusy]=useState(false),[forgetAllArmed,setForgetAllArmed]=useState(false);
     const [typingLocal,setTypingLocal]=useState(false),[inputLog,setInputLog]=useState([]);
     const logInput=line=>setInputLog(v=>[...v.slice(-7),line]);
@@ -654,6 +655,13 @@ function makePanel(){
       }catch(e){setErr("Paste: "+String(e&&e.message||e));}
       finally{setPasteBusy(false);}
     }
+    async function moveRom(path){
+      if(romMoving)return;
+      setRomMoving(path);
+      try{const r=await call("sort_rom",{path});if(!r||!r.ok)throw new Error(r&&r.error||"Could not move");setTimeout(()=>refreshStatus(),1500);}
+      catch(e){setErr("ROM: "+String(e&&e.message||e));}
+      finally{setTimeout(()=>setRomMoving(null),2500);}
+    }
     async function setRomSort(enabled){try{const r=await call("set_rom_sort",{enabled});setStatus(x=>({...x,roms:r&&r.roms||x.roms}));}catch(e){setErr("ROMs: "+String(e&&e.message||e));}}
     async function forgetDevice(id){try{const r=await call("forget_device",{id});setStatus(x=>({...x,devices:r&&r.devices||[]}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}}
     async function forgetAllDevices(){
@@ -902,6 +910,9 @@ function makePanel(){
         (!status.received||!status.received.length)?h("div",{style:{opacity:.5,fontSize:12,padding:"4px 0"}},"No received files yet"):status.received.map(f=>h("div",{key:f.path,style:{background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.06)",borderRadius:12,padding:10,margin:"7px 0"}},
           h("div",{style:{display:"flex",gap:9,alignItems:"center"}},h("div",{style:{width:34,height:34,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(26,159,255,.12)",color:"#7cc4ff"}},browseFileIcon(f,18)),h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontWeight:740,wordBreak:"break-word"}},f.name),h("div",{style:{fontSize:10,opacity:.54,marginTop:2}},f.size_human))),
           f.rom&&h("div",{style:{display:"flex",alignItems:"center",gap:5,marginTop:6,fontSize:10,fontWeight:720,color:"#7fe3ad"}},h(Icon,{name:"check",size:12}),`In ${f.rom.app} • ${f.rom.system}`),
+          !f.rom&&f.rom_hint&&h("div",{style:{display:"flex",alignItems:"center",gap:8,marginTop:6,flexWrap:"wrap"}},
+            h("span",{style:{fontSize:10,fontWeight:700,color:f.rom_hint.can_move?"#ffc979":"#9aabbd"}},f.rom_hint.can_move?`${f.rom_hint.system} game`:`${f.rom_hint.system} game • no ${status.roms&&status.roms.found?"matching roms folder":"EmuDeck folder found"}`),
+            f.rom_hint.can_move&&h(MiniButton,{compact:true,onClick:()=>moveRom(f.path)},romMoving===f.path?"Moving…":`Move to ${f.rom_hint.app}`)),
           h("div",{style:{fontSize:9,opacity:.42,marginTop:6,wordBreak:"break-all"}},f.path),
           h("div",{style:{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}},h(MiniButton,{onClick:()=>showReceivedFolder(f.path)},"Show folder"),h(MiniButton,{onClick:()=>copyText(f.path,"Path")},copiedPath===f.path?"✓ Copied":"Copy path"),h(MiniButton,{onClick:()=>deleteReceived(f.path),tone:"danger"},deleteArmed===f.path?"Tap again":"Delete"))
         ))
@@ -940,8 +951,9 @@ function makePanel(){
             h("div",{style:{fontSize:11,opacity:.7,lineHeight:1.35,minWidth:0}},
               status.roms&&status.roms.found
                 ?(status.roms.enabled?`On • ROMs you send go into ${status.roms.app}'s roms folders`:`Off • ROMs stay in Downloads/DeckShare`)
-                :"EmuDeck or RetroDECK not found • ROMs stay in Downloads/DeckShare"),
+                :"EmuDeck or RetroDECK roms folder not found • ROMs stay in Downloads/DeckShare"),
             status.roms&&status.roms.found&&h(MiniButton,{onClick:()=>setRomSort(!status.roms.enabled)},status.roms.enabled?"Turn off":"Turn on")),
+          status.roms&&!status.roms.found&&status.roms.checked&&h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,marginTop:5,wordBreak:"break-all"}},"Looked in: "+status.roms.checked.join(" • ")),
           status.roms&&status.roms.found&&h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,marginTop:5,wordBreak:"break-all"}},`${status.roms.root} • GBA, SNES, N64, DS, 3DS, Switch, PS1, PS2, PSP, GameCube, Wii and more. Run Steam ROM Manager to add new games to Steam.`)),
         h(SubSection,{title:"Remembered devices"},
           (!status.devices||!status.devices.length)?h("div",{style:{fontSize:11,opacity:.6,lineHeight:1.35}},"None yet. A phone or computer is remembered after it connects once, so it does not need the QR code again after a restart."):

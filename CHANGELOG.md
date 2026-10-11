@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.0-rc.11
+
+- ROMs: EmuDeck's roms folder is now found wherever EmuDeck put it. DeckyShare reads EmuDeck's own settings (`romsPath`), RetroDECK's config, and searches SD cards and drives more deeply.
+- A game file that stayed in Downloads now says what it is (for example "Game Boy Advance game") and has a **Move to EmuDeck** button.
+- When no roms folder is found, Settings shows where DeckyShare looked.
+
 ## v1.3.0-rc.10
 
 - **Remembered devices**: a phone or computer that connected once keeps working after the Deck restarts, with no QR code or 6-digit code. Bookmark the address and just open it. Manage or forget devices under **Settings & support → Remembered devices** (forgetting also changes the QR key).

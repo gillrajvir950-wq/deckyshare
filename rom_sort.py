@@ -97,27 +97,134 @@ def detect_system(path: Path):
     return None
 
 
-def find_roms_roots(user_home: Path):
-    """[(path, app)] for EmuDeck / RetroDECK roms folders, internal first."""
-    home = Path(user_home)
+_KNOWN = {n for names in SYSTEMS.values() for n in names}
+
+
+def _expand(raw: str, home: Path):
+    v = raw.strip().strip('"').strip("'")
+    v = v.replace("$HOME", str(home)).replace("${HOME}", str(home))
+    if v.startswith("~"):
+        v = str(home) + v[1:]
+    return Path(v) if v.startswith("/") else None
+
+
+def _config_paths(home: Path):
+    """roms folders named in EmuDeck / RetroDECK's own settings."""
     out = []
-    cands = [(home / "Emulation" / "roms", "EmuDeck"), (home / "retrodeck" / "roms", "RetroDECK")]
-    media = Path("/run/media")
-    if media.is_dir():
+    for f in (home / ".config/EmuDeck/settings.sh", home / "emudeck/settings.sh"):
         try:
-            for a in sorted(media.iterdir()):
-                for b in [a] + (sorted(x for x in a.iterdir() if x.is_dir()) if a.is_dir() else []):
-                    cands.append((b / "Emulation" / "roms", "EmuDeck"))
-                    cands.append((b / "retrodeck" / "roms", "RetroDECK"))
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
-            pass
+            continue
+        values = {}
+        for line in lines:
+            line = line.strip()
+            for key in ("romsPath", "emulationPath"):
+                if line.startswith(key + "="):
+                    values[key] = line.split("=", 1)[1].split("#", 1)[0]
+        if values.get("romsPath"):
+            p = _expand(values["romsPath"], home)
+            if p:
+                out.append((p, "EmuDeck"))
+        if values.get("emulationPath"):
+            p = _expand(values["emulationPath"], home)
+            if p:
+                out.append((p / "roms", "EmuDeck"))
+    cfg = home / ".var/app/net.retrodeck.retrodeck/config/retrodeck/retrodeck.cfg"
+    try:
+        for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line.startswith("roms_folder="):
+                p = _expand(line.split("=", 1)[1], home)
+                if p:
+                    out.append((p, "RetroDECK"))
+            elif line.startswith("rdhome="):
+                p = _expand(line.split("=", 1)[1], home)
+                if p:
+                    out.append((p / "roms", "RetroDECK"))
+    except OSError:
+        pass
+    return out
+
+
+def _subdirs(p: Path):
+    try:
+        return sorted(x for x in p.iterdir() if x.is_dir() and not x.name.startswith("."))
+    except OSError:
+        return []
+
+
+def _looks_like_roms(p: Path):
+    try:
+        names = {x.name.lower() for x in p.iterdir() if x.is_dir()}
+    except OSError:
+        return False
+    return len(names & _KNOWN) >= 4
+
+
+def _scan(base: Path, depth: int):
+    """Find Emulation/roms, retrodeck/roms or any 'roms' folder full of system folders."""
+    found = []
+    level = [base]
+    for _ in range(depth + 1):
+        nxt = []
+        for d in level:
+            for name, app in (("Emulation", "EmuDeck"), ("retrodeck", "RetroDECK")):
+                r = d / name / "roms"
+                try:
+                    if r.is_dir():
+                        found.append((r, app))
+                except OSError:
+                    pass
+            if d.name.lower() == "roms" and _looks_like_roms(d):
+                found.append((d, "EmuDeck"))
+            nxt.extend(_subdirs(d))
+        level = nxt[:400]
+    return found
+
+
+_ROOTS_CACHE = {}
+
+
+def find_roms_roots(user_home: Path, max_age: float = 20.0):
+    """[(path, app)] for EmuDeck / RetroDECK roms folders, best first (cached briefly)."""
+    key = str(user_home)
+    hit = _ROOTS_CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < max_age:
+        return list(hit[1])
+    roots = _find_roms_roots(Path(user_home))
+    _ROOTS_CACHE[key] = (time.monotonic(), roots)
+    return list(roots)
+
+
+def _find_roms_roots(user_home: Path):
+    home = Path(user_home)
+    cands = _config_paths(home)
+    cands += [(home / "Emulation" / "roms", "EmuDeck"), (home / "retrodeck" / "roms", "RetroDECK")]
+    media = Path("/run/media")
+    try:
+        if media.is_dir():
+            cands += _scan(media, 3)
+    except OSError:
+        pass
+    out, seen = [], set()
     for p, app in cands:
         try:
             if p.is_dir():
-                out.append((p, app))
+                key = p.resolve()
+                if key not in seen:
+                    seen.add(key)
+                    out.append((p, app))
         except OSError:
             pass
     return out
+
+
+def places_checked(user_home: Path):
+    home = Path(user_home)
+    places = [str(p) for p, _ in _config_paths(home)]
+    places += [str(home / "Emulation/roms"), str(home / "retrodeck/roms"), "/run/media (SD cards and drives)"]
+    return places
 
 
 def target_folder(user_home: Path, system: str):
@@ -184,6 +291,7 @@ class RomSorter:
             "found": bool(roots),
             "app": roots[0][1] if roots else None,
             "root": str(roots[0][0]) if roots else None,
+            "checked": [] if roots else places_checked(self.home),
             "moving": [dict(v) for v in self.active.values()],
         }
 
@@ -196,10 +304,18 @@ class RomSorter:
         with self.lock:
             return [dict(m) for m in self.moves if Path(m.get("path", "")).exists()]
 
-    def maybe_sort(self, path, sender=None, delay=2.0, on_done=None):
+    def hint(self, path):
+        """For a file still in Downloads: which system it looks like and whether it can be moved."""
+        system = detect_system(Path(path))
+        if not system:
+            return None
+        folder, app = target_folder(self.home, system)
+        return {"system": system, "can_move": bool(folder), "app": app}
+
+    def maybe_sort(self, path, sender=None, delay=2.0, on_done=None, force=False):
         """If the file is a ROM for a system with an existing folder, move it there (background)."""
         p = Path(path)
-        if not self.enabled:
+        if not self.enabled and not force:
             return None
         system = detect_system(p)
         if not system:

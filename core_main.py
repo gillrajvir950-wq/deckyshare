@@ -344,6 +344,7 @@ class State:
                         "size_human": human_size(st.st_size),
                         "received_at": st.st_mtime,
                         "from": SENDERS.get(p.name),
+                        "rom_hint": ROMS.hint(p),
                     })
                 except OSError:
                     continue
@@ -1576,6 +1577,24 @@ class Plugin:
         DEVICES.forget_all()
         STATE.token = secrets.token_urlsafe(12)
         return {"ok": True, "devices": []}
+
+    async def sort_rom(self, payload=None, *args, **kwargs):
+        pth = extract_path(payload, args, kwargs)
+        if not pth:
+            return {"ok": False, "error": "Missing file"}
+        p = Path(pth).expanduser().resolve()
+        try:
+            p.relative_to(STATE.receive_dir.resolve())
+        except ValueError:
+            return {"ok": False, "error": "Only received files can be moved"}
+        if not p.is_file():
+            return {"ok": False, "error": "File not found"}
+        job = ROMS.maybe_sort(p, SENDERS.get(p.name), delay=0, force=True,
+                              on_done=lambda r: notify_file_received(r, "rom_sorted"))
+        if not job:
+            hint = ROMS.hint(p)
+            return {"ok": False, "error": "No matching roms folder for this game" if hint else "Not a recognised game file"}
+        return {"ok": True, "job": job}
 
     async def set_rom_sort(self, payload=None, *args, **kwargs):
         value = payload.get("enabled") if isinstance(payload, dict) else kwargs.get("enabled", payload)

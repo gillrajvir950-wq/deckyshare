@@ -57,6 +57,7 @@ class DetectTests(unittest.TestCase):
 
 class SorterTests(unittest.TestCase):
     def setUp(self):
+        rom_sort._ROOTS_CACHE.clear()
         self.temp = tempfile.TemporaryDirectory()
         self.home = Path(self.temp.name) / "home"
         self.roms = self.home / "Emulation" / "roms"
@@ -133,6 +134,33 @@ class SorterTests(unittest.TestCase):
         self.assertEqual((self.roms / "switch" / "Mario (1).nsp").read_bytes(), b"new" * 100)
         self.assertFalse(f.exists())
         self.assertFalse(any(p.name.startswith(".deckyshare-moving") for p in (self.roms / "switch").iterdir()))
+
+    def test_emudeck_settings_file_custom_path(self):
+        home = Path(self.temp.name) / "home3"
+        custom = Path(self.temp.name) / "sd" / "Games" / "Emu" / "roms"
+        (custom / "gba").mkdir(parents=True)
+        (home / ".config/EmuDeck").mkdir(parents=True)
+        (home / ".config/EmuDeck/settings.sh").write_text(f'#!/bin/bash\nemulationPath="{custom.parent}"\nromsPath="{custom}"\n')
+        folder, app = rom_sort.target_folder(home, "Game Boy Advance")
+        self.assertEqual(folder, custom / "gba")
+
+    def test_scan_finds_custom_roms_folder(self):
+        base = Path(self.temp.name) / "media"
+        r = base / "deck" / "SD" / "roms"
+        for n in ("gba", "snes", "psx", "ps2", "n64"):
+            (r / n).mkdir(parents=True)
+        found = rom_sort._scan(base, 3)
+        self.assertIn(r, [p for p, _ in found])
+
+    def test_hint_and_forced_move(self):
+        f = self.inbox / "Metroid.gba"
+        f.write_bytes(b"x")
+        self.sorter.set_enabled(False)
+        self.assertEqual(self.sorter.hint(f)["can_move"], True)
+        self.assertIsNone(self.sorter.maybe_sort(f, delay=0))
+        self.assertIsNotNone(self.sorter.maybe_sort(f, delay=0, force=True))
+        self.wait(f)
+        self.assertTrue((self.roms / "gba" / "Metroid.gba").is_file())
 
     def test_retrodeck_used_when_no_emudeck(self):
         home = Path(self.temp.name) / "home2"
