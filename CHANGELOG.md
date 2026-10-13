@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.3.0
+
+Everything from the 1.3.0 test builds, tested on a Steam Deck OLED with an iPhone:
+
+- **Screenshots**: pick Steam screenshots (grouped by game) and send them to the phone as a gallery; on iPhone press and hold → Save to Photos.
+- **ROMs straight into EmuDeck / RetroDECK**: received game files go into the matching `roms/<system>` folder wherever EmuDeck keeps it (internal or SD card). Disc images are recognised by their content; unclear formats stay in Downloads with a **Move to EmuDeck** button.
+- **Clipboard** between phone/PC and Deck: Text tab on the phone page, Clipboard section on the Deck with Copy, **Paste** (reads the Deck clipboard), Open link and **Type on Deck**.
+- **Remembered devices**: connect once; after a Deck restart just open the address again. Manage them under Settings & support.
+- New controller highlight (the whole card lights up), buttons sized correctly on the Deck, phone tabs no longer wrap.
+
 ## v1.3.0-rc.11
 
 - ROMs: EmuDeck's roms folder is now found wherever EmuDeck put it. DeckyShare reads EmuDeck's own settings (`romsPath`), RetroDECK's config, and searches SD cards and drives more deeply.
