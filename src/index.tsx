@@ -384,7 +384,7 @@ function makePanel(){
     const [pasteHint,setPasteHint]=useState(null);
     const composeRef=useRef(null);
     const [romMoving,setRomMoving]=useState(null);
-    const [pasteBusy,setPasteBusy]=useState(false),[forgetAllArmed,setForgetAllArmed]=useState(false);
+    const [pasteBusy,setPasteBusy]=useState(false),[forgetAllArmed,setForgetAllArmed]=useState(false),[shareResetArmed,setShareResetArmed]=useState(false);
     const [typingLocal,setTypingLocal]=useState(false),[inputLog,setInputLog]=useState([]);
     const logInput=line=>setInputLog(v=>[...v.slice(-7),line]);
     const [shots,setShots]=useState(null),[shotThumbs,setShotThumbs]=useState({}),[shotPicked,setShotPicked]=useState([]),[shotLimit,setShotLimit]=useState(12),[shotBusy,setShotBusy]=useState(false);
@@ -664,10 +664,15 @@ function makePanel(){
     }
     async function setRomSort(enabled){try{const r=await call("set_rom_sort",{enabled});setStatus(x=>({...x,roms:r&&r.roms||x.roms}));}catch(e){setErr("ROMs: "+String(e&&e.message||e));}}
     async function forgetDevice(id){try{const r=await call("forget_device",{id});setStatus(x=>({...x,devices:r&&r.devices||[]}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}}
+    async function resetShareKey(){
+      if(!shareResetArmed){setShareResetArmed(true);setTimeout(()=>setShareResetArmed(false),5000);return;}
+      setShareResetArmed(false);
+      try{await call("reset_share_key");setStatus(x=>({...x,share_key_used:null}));toast(backendAPI,"Shortcut / app key reset");}catch(e){setErr("Devices: "+String(e&&e.message||e));}
+    }
     async function forgetAllDevices(){
       if(!forgetAllArmed){setForgetAllArmed(true);setTimeout(()=>setForgetAllArmed(false),5000);return;}
       setForgetAllArmed(false);
-      try{await call("forget_all_devices");setStatus(x=>({...x,devices:[]}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}
+      try{await call("forget_all_devices");setStatus(x=>({...x,devices:[],share_key_used:null}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}
     }
     async function sendText(){
       const el=composeRef.current;
@@ -956,12 +961,15 @@ function makePanel(){
           status.roms&&!status.roms.found&&status.roms.checked&&h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,marginTop:5,wordBreak:"break-all"}},"Looked in: "+status.roms.checked.join(" • ")),
           status.roms&&status.roms.found&&h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,marginTop:5,wordBreak:"break-all"}},`${status.roms.root} • GBA, SNES, N64, DS, 3DS, Switch, PS1, PS2, PSP, GameCube, Wii and more. Run Steam ROM Manager to add new games to Steam.`)),
         h(SubSection,{title:"Remembered devices"},
-          (!status.devices||!status.devices.length)?h("div",{style:{fontSize:11,opacity:.6,lineHeight:1.35}},"None yet. A phone or computer is remembered after it connects once, so it does not need the QR code again after a restart."):
-          h("div",null,
-            status.devices.map(d=>h("div",{key:d.id,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:"1px solid rgba(255,255,255,.05)"}},
-              h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontSize:11,fontWeight:720}},d.name||"Device"),h("div",{style:{fontSize:9,opacity:.5}},`Last used ${timeAgo(d.last_seen)}`)),
-              h(MiniButton,{compact:true,tone:"danger",onClick:()=>forgetDevice(d.id)},"Forget"))),
-            status.devices.length>1&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:forgetAllDevices},forgetAllArmed?"Press again to forget all":"Forget all")))),
+          h("div",{style:{fontSize:10,opacity:.55,lineHeight:1.4,marginBottom:6}},"A device that connected once stays allowed until you forget it here. Forgetting takes effect immediately."),
+          (status.devices||[]).map(d=>h("div",{key:d.id,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:"1px solid rgba(255,255,255,.05)"}},
+            h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontSize:11,fontWeight:720}},d.name||"Device"),h("div",{style:{fontSize:9,opacity:.5}},`Last used ${timeAgo(d.last_seen)}`)),
+            h(MiniButton,{compact:true,tone:"danger",onClick:()=>forgetDevice(d.id)},"Forget"))),
+          (!status.devices||!status.devices.length)&&h("div",{style:{fontSize:11,opacity:.6,padding:"2px 0"}},"No remembered devices."),
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:"1px solid rgba(255,255,255,.05)"}},
+            h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontSize:11,fontWeight:720}},"iPhone Shortcut / Android app"),h("div",{style:{fontSize:9,opacity:.5}},status.share_key_used?`Last used ${timeAgo(status.share_key_used)}`:"Not used recently")),
+            h(MiniButton,{compact:true,tone:"danger",onClick:resetShareKey},shareResetArmed?"Press again":"Reset key")),
+          status.devices&&status.devices.length>0&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:forgetAllDevices},forgetAllArmed?"Press again to forget all":"Forget all"))),
         h(SubSection,{title:"Support DeckyShare"},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"Buy me a coffee"))
       ),
       err&&h("div",{style:{color:"#ffb3b3",marginTop:8,fontSize:11,wordBreak:"break-word"}},err)

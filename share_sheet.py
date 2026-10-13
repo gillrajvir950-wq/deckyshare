@@ -39,6 +39,45 @@ def load_or_create_share_key(decky) -> str:
     return value
 
 
+def rotate_share_key(decky) -> str:
+    """Replace the Share Sheet / Android app key. Old shortcuts stop working."""
+    base = _settings_dir(decky)
+    value = secrets.token_urlsafe(32)
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        path = base / "iphone-share-key.txt"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(value + "\n", encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        os.replace(tmp, path)
+    except OSError:
+        pass
+    return value
+
+
+def usage_path(decky) -> Path:
+    return _settings_dir(decky) / "share-key-usage.txt"
+
+
+def record_use(decky) -> None:
+    try:
+        p = usage_path(decky)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(str(time.time()), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def last_use(decky):
+    try:
+        return float(usage_path(decky).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
 def authorized(provided: str, expected: str) -> bool:
     try:
         return bool(provided) and secrets.compare_digest(str(provided), str(expected))

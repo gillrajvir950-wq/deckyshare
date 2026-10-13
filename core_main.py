@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import re
 import mimetypes
 import os
 import secrets
@@ -38,6 +39,10 @@ from share_sheet import (
     receive_raw as receive_share_sheet_raw,
     setup_page as share_sheet_setup_page,
     start_pairing as start_share_sheet_pairing,
+    rotate_share_key,
+    record_use as record_share_key_use,
+    last_use as share_key_last_use,
+    usage_path as share_key_usage_path,
 )
 
 try:
@@ -67,6 +72,14 @@ def human_size(n):
         if n < 1024 or unit == "TB":
             return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} B"
         n /= 1024
+
+
+_SECRET_PARAM = re.compile(r"((?:^|[?&;\s])(?:token|key|code)=)[^&\s\"']+", re.IGNORECASE)
+
+
+def redact_secrets(text):
+    """Hide session tokens, Share Sheet keys and pairing codes in log lines."""
+    return _SECRET_PARAM.sub(r"\1***", str(text))
 
 
 def unique_destination_path(path):
@@ -598,7 +611,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "DeckyShare/1.1-dev"
 
     def log_message(self, fmt, *args):
-        decky.logger.info("DeckyShare HTTP: " + (fmt % args))
+        decky.logger.info("DeckyShare HTTP: " + redact_secrets(fmt % args))
 
     def token_ok(self):
         candidates = []
@@ -689,6 +702,7 @@ class Handler(BaseHTTPRequestHandler):
             if not share_sheet_authorized(provided, STATE.share_key):
                 self.send_error(403, "Invalid DeckyShare Share Sheet key")
                 return
+            record_share_key_use(decky)
             base_url = f"http://{local_ip()}:{STATE.port}"
             data = share_sheet_setup_page(base_url, STATE.share_key).encode("utf-8")
             self.send_response(200)
@@ -743,30 +757,6 @@ class Handler(BaseHTTPRequestHandler):
                 st = STATE.selected.stat()
                 sel = {"name": STATE.selected.name, "path": str(STATE.selected), "size": st.st_size, "size_human": human_size(st.st_size)}
             return self.send_json({"selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir), "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev, "shared": shared_info()})
-        if u.path == "/api/roots":
-            return self.send_json({"roots": [{"name": n, "path": str(p)} for n, p in allowed_roots()]})
-        if u.path == "/api/browse":
-            q = urllib.parse.parse_qs(u.query)
-            raw = q.get("path", [str(Path(decky.DECKY_USER_HOME))])[0]
-            p = Path(raw).resolve()
-            if not path_allowed(p) or not p.is_dir():
-                return self.send_json({"error": "Path not allowed"}, 403)
-            items = []
-            try:
-                for x in sorted(p.iterdir(), key=lambda z: (not z.is_dir(), z.name.lower())):
-                    if x.name.startswith('.'):
-                        continue
-                    if x.is_dir():
-                        items.append({"name": x.name, "path": str(x), "type": "dir"})
-                    elif x.suffix.lower() in ALL_EXTS:
-                        try:
-                            items.append({"name": x.name, "path": str(x), "type": "file", "size": x.stat().st_size, "size_human": human_size(x.stat().st_size)})
-                        except OSError:
-                            pass
-            except OSError as e:
-                return self.send_json({"error": str(e)}, 400)
-            parent = str(p.parent) if path_allowed(p.parent) else None
-            return self.send_json({"path": str(p), "parent": parent, "items": items})
         if u.path == "/download":
             return self.handle_download()
         if u.path == "/shared":
@@ -905,6 +895,8 @@ class Handler(BaseHTTPRequestHandler):
                 base_url,
                 STATE.share_key,
             )
+            if status == 200:
+                record_share_key_use(decky)
             return self.send_json(result, status)
         if u.path == "/shortcut/share":
             result, status = receive_share_sheet_raw(
@@ -915,6 +907,8 @@ class Handler(BaseHTTPRequestHandler):
                 unique_destination_path,
                 notify_file_received,
             )
+            if status == 200:
+                record_share_key_use(decky)
             return self.send_json(result, status)
         if u.path == "/pair":
             return self.handle_browser_pair()
@@ -922,10 +916,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(403)
             return
         if u.path == "/api/select":
+            # Phones/computers may only offer back files they sent themselves
+            # (used by tools/benchmark_transfer.py); other Deck files are chosen on the Deck.
             n = int(self.headers.get("Content-Length", "0"))
             data = json.loads(self.rfile.read(n) or b"{}")
             p = Path(data.get("path", "")).resolve()
-            if not path_allowed(p) or not p.is_file():
+            try:
+                p.relative_to(STATE.receive_dir.resolve())
+                inside = True
+            except ValueError:
+                inside = False
+            if not inside or not p.is_file():
                 return self.send_json({"error": "File not allowed"}, 403)
             STATE.selected = p
             STATE.shared = []
@@ -1318,6 +1319,14 @@ def wifi_diagnostics():
     return info
 
 
+def _reset_share_key():
+    STATE.share_key = rotate_share_key(decky)
+    try:
+        share_key_usage_path(decky).unlink()
+    except OSError:
+        pass
+
+
 def clips_output_dir():
     return Path(decky.DECKY_USER_HOME) / "Videos" / "Steam Clips"
 
@@ -1398,6 +1407,7 @@ class Plugin:
             "shared": shared_info(),
             "roms": ROMS.info(),
             "devices": DEVICES.list(),
+            "share_key_used": share_key_last_use(decky),
         }
 
     async def shortcut_pairing_start(self, *args, **kwargs):
@@ -1573,10 +1583,16 @@ class Plugin:
             STATE.token = secrets.token_urlsafe(12)
         return {"ok": True, "devices": DEVICES.list()}
 
+    async def reset_share_key(self, *args, **kwargs):
+        """Cut off the iPhone Shortcut / Android app by replacing their key."""
+        _reset_share_key()
+        return {"ok": True, "share_key_used": None}
+
     async def forget_all_devices(self, *args, **kwargs):
         DEVICES.forget_all()
         STATE.token = secrets.token_urlsafe(12)
-        return {"ok": True, "devices": []}
+        _reset_share_key()  # "Forget all" also cuts off the iPhone Shortcut / Android app
+        return {"ok": True, "devices": [], "share_key_used": None}
 
     async def sort_rom(self, payload=None, *args, **kwargs):
         pth = extract_path(payload, args, kwargs)
