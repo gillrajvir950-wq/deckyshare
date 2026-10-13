@@ -1,5 +1,71 @@
 # Changelog
 
+## v1.3.0
+
+Everything from the 1.3.0 test builds, tested on a Steam Deck OLED with an iPhone:
+
+- **Screenshots**: pick Steam screenshots (grouped by game) and send them to the phone as a gallery; on iPhone press and hold → Save to Photos.
+- **ROMs straight into EmuDeck / RetroDECK**: received game files go into the matching `roms/<system>` folder wherever EmuDeck keeps it (internal or SD card). Disc images are recognised by their content; unclear formats stay in Downloads with a **Move to EmuDeck** button.
+- **Clipboard** between phone/PC and Deck: Text tab on the phone page, Clipboard section on the Deck with Copy, **Paste** (reads the Deck clipboard), Open link and **Type on Deck**.
+- **Remembered devices**: connect once; after a Deck restart just open the address again. Manage them under Settings & support.
+- New controller highlight (the whole card lights up), buttons sized correctly on the Deck, phone tabs no longer wrap.
+
+## v1.3.0-rc.11
+
+- ROMs: EmuDeck's roms folder is now found wherever EmuDeck put it. DeckyShare reads EmuDeck's own settings (`romsPath`), RetroDECK's config, and searches SD cards and drives more deeply.
+- A game file that stayed in Downloads now says what it is (for example "Game Boy Advance game") and has a **Move to EmuDeck** button.
+- When no roms folder is found, Settings shows where DeckyShare looked.
+
+## v1.3.0-rc.10
+
+- **Remembered devices**: a phone or computer that connected once keeps working after the Deck restarts, with no QR code or 6-digit code. Bookmark the address and just open it. Manage or forget devices under **Settings & support → Remembered devices** (forgetting also changes the QR key).
+- **ROMs straight into EmuDeck / RetroDECK**: game files you send (GBA, SNES, N64, DS, 3DS, Switch, PS1, PS2, PSP, GameCube, Wii, Wii U, Genesis and more) go into the matching `Emulation/roms/<system>` folder, including the SD card. Disc images (.iso, .rvz) are recognised by their content. Files that cannot be told apart (.chd, .cue/.bin, .zip) stay in Downloads. Received files shows where each ROM went; turn it off under **Settings & support → Game ROMs**.
+- Removed the temporary "Paste test" box.
+
+## v1.3.0-rc.9
+
+- Fixed: the Paste button read the clipboard but the text did not show in the box unless the box had been tapped first.
+
+## v1.3.0-rc.8
+
+- **Paste button** in the Clipboard section. The Steam keyboard's Paste key does not reach text boxes inside the Decky menu, so DeckyShare now reads the Deck clipboard itself: press Paste and the box fills with whatever you copied on the Deck (in DeckyShare, the Steam browser or anywhere in Steam).
+
+## v1.3.0-rc.7
+
+- **Type on Deck** now uses Steam's own keyboard input (the same way other Decky plugins type text), so it needs no special permissions and works in games and Steam alike. The virtual keyboard is only a fallback for older Steam versions.
+- Test builds only: a small "Paste test" log under the Clipboard text box shows what the Steam keyboard's Paste key does, to find why a single tap does not paste there.
+
+## v1.3.0-rc.6
+
+- Fixed: a single tap on **Paste** on the Steam keyboard did not paste into DeckyShare's text boxes (only press-and-hold worked). The keyboard changes the box directly and the panel used to put the old text back a moment later. Text boxes now keep whatever the keyboard puts in them.
+- The Copy hint now simply says to tap Paste on the Steam keyboard.
+
+## v1.3.0-rc.5
+
+- Fixed the Clipboard layout on the Deck: the text box is wide again with a small Send button, and the item buttons sit two per row instead of one full-width button per row. Small buttons elsewhere (Received files, Screenshots) also keep their size.
+
+## v1.3.0-rc.4
+
+- **Screenshots**: a new section shows your Steam screenshots grouped by game. Tap to pick one or many, press **Send to phone**, and they appear as a gallery on the phone page under **Get from Deck**. On iPhone, press and hold a picture and choose Save to Photos, or tap Download.
+- Phone page tabs no longer wrap onto two lines when a badge is shown.
+
+## v1.3.0-rc.3
+
+- After **Copy** in the Clipboard section, DeckyShare now explains how to paste in Gaming Mode: press and hold **Paste** on the Steam keyboard (a short tap does not paste).
+
+## v1.3.0-rc.2
+
+- **Type on Deck**: Gaming Mode has no reliable paste, so each Clipboard item now has **Type on Deck**. Select a text box (in a game, the Steam browser, a login field), open DeckyShare, press Type on Deck: the menu closes and DeckyShare types the text into the box through a temporary virtual keyboard (US layout; characters a keyboard can't type are skipped).
+
+## v1.3.0-rc.1
+
+- **Clipboard**: send text and links between your phone/PC and the Deck. On the phone page use the new **Text** tab; on the Deck use the **Clipboard** section. Every item has Copy (and Open for links), the Deck shows a notification when text arrives, and the last 30 items are kept.
+- **New controller highlight**: the focused card now lights up as a whole (Steam style) instead of showing a box inside the card. Open sections highlight only their header.
+
+## v1.2.0
+
+- **Game clips**: a new "Game clips" section lists your Steam game recordings. Tap one and DeckyShare turns it into a regular MP4 (no re-encoding, same quality) and offers it on the phone page under **Get from Deck**. Works in Gaming Mode and for clips of any length (Steam itself only sends clips up to 59 seconds to a phone). A copy is kept in `Videos/Steam Clips`.
+
 ## v1.1.1
 
 - The Deck panel now retries for up to ~30 seconds while Decky starts the backend after an install or update, instead of showing "Backend startup timed out" right away.

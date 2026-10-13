@@ -23,6 +23,13 @@ from transfer_integrity import (
     validate_upload_window,
 )
 from web_ui import html_page, pair_page_html
+import steam_clips
+import text_share
+import deck_keyboard
+import deck_clipboard
+import rom_sort
+import trusted_devices
+import steam_screens
 from share_sheet import (
     authorized as share_sheet_authorized,
     load_or_create_share_key,
@@ -238,6 +245,10 @@ class SenderLog:
 
 
 SENDERS = SenderLog()
+_TEXT_SETTINGS = getattr(decky, "DECKY_PLUGIN_SETTINGS_DIR", None)
+TEXTS = text_share.TextBoard(Path(_TEXT_SETTINGS) / "texts.json" if _TEXT_SETTINGS else None)
+DEVICES = trusted_devices.DeviceStore(Path(_TEXT_SETTINGS) / "devices.json" if _TEXT_SETTINGS else None)
+ROMS = rom_sort.RomSorter(Path(decky.DECKY_USER_HOME), Path(_TEXT_SETTINGS) if _TEXT_SETTINGS else None)
 
 
 class State:
@@ -306,6 +317,12 @@ class State:
                 self.received = [x for x in self.received if x.get("path") != str(p)]
                 self.received.insert(0, item)
                 self.received = self.received[:50]
+            try:
+                job = ROMS.maybe_sort(p, current_sender(), on_done=lambda r: notify_file_received(r, "rom_sorted"))
+                if job:
+                    item["sorting"] = job["system"]
+            except Exception:
+                decky.logger.exception("DeckyShare ROM sorting failed")
             return item
         except Exception:
             return None
@@ -327,9 +344,16 @@ class State:
                         "size_human": human_size(st.st_size),
                         "received_at": st.st_mtime,
                         "from": SENDERS.get(p.name),
+                        "rom_hint": ROMS.hint(p),
                     })
                 except OSError:
                     continue
+            for m in ROMS.recent_moves():
+                disk.append({
+                    "name": m["name"], "path": m["path"], "size": m.get("size", 0),
+                    "size_human": human_size(m.get("size", 0)), "received_at": m.get("moved_at", 0),
+                    "from": m.get("from"), "rom": {"system": m.get("system"), "app": m.get("app"), "folder": m.get("folder")},
+                })
             disk.sort(key=lambda x: x["received_at"], reverse=True)
             with self.lock:
                 self.received = disk[:50]
@@ -377,15 +401,18 @@ class State:
 SPEED_WINDOW_SECONDS = 3.0
 STALL_AFTER_SECONDS = 2.0
 STATE = State()
+STATE.shared = []  # several files offered at once (screenshots)
+CLIPS = steam_clips.ClipExporter()
+TYPIST = deck_keyboard.Typist()
 _START_SERVER_LOCK = threading.Lock()
 
 
-def notify_file_received(item):
+def notify_file_received(item, event="file_received"):
     """Emit a Decky frontend event from the HTTP server thread."""
     if not item or STATE.loop is None:
         return
     try:
-        future = asyncio.run_coroutine_threadsafe(decky.emit("file_received", item), STATE.loop)
+        future = asyncio.run_coroutine_threadsafe(decky.emit(event, item), STATE.loop)
 
         def _finished(f):
             try:
@@ -574,26 +601,43 @@ class Handler(BaseHTTPRequestHandler):
         decky.logger.info("DeckyShare HTTP: " + (fmt % args))
 
     def token_ok(self):
-        provided = ""
+        candidates = []
         try:
             query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-            provided = str(query.get("token", [""])[0] or "")
+            candidates.append(str(query.get("token", [""])[0] or ""))
         except Exception:
-            provided = ""
-        if not provided:
-            provided = str(self.headers.get("X-DeckyShare-Token", "") or "")
-        if not provided:
-            try:
-                cookies = SimpleCookie()
-                cookies.load(self.headers.get("Cookie", ""))
-                morsel = cookies.get("deckyshare_token")
-                provided = morsel.value if morsel else ""
-            except Exception:
-                provided = ""
+            pass
+        candidates.append(str(self.headers.get("X-DeckyShare-Token", "") or ""))
+        device = ""
         try:
-            return bool(provided) and secrets.compare_digest(provided, STATE.token)
+            cookies = SimpleCookie()
+            cookies.load(self.headers.get("Cookie", ""))
+            morsel = cookies.get("deckyshare_token")
+            candidates.append(morsel.value if morsel else "")
+            dm = cookies.get(trusted_devices.COOKIE)
+            device = dm.value if dm else ""
         except Exception:
-            return False
+            pass
+        try:
+            if any(c and secrets.compare_digest(c, STATE.token) for c in candidates):
+                return True
+        except Exception:
+            pass
+        # A remembered phone/computer keeps working after the Deck restarts.
+        return bool(device and DEVICES.verify(device))
+
+    def remember_device_header(self):
+        """Set-Cookie for a long-lived device key, unless this device already has one."""
+        try:
+            cookies = SimpleCookie()
+            cookies.load(self.headers.get("Cookie", ""))
+            dm = cookies.get(trusted_devices.COOKIE)
+            if dm and DEVICES.verify(dm.value):
+                return None
+        except Exception:
+            pass
+        name = device_from_user_agent(self.headers.get("User-Agent", "")) or "Browser"
+        return trusted_devices.cookie_header(DEVICES.create(name))
 
     def loopback_client(self):
         try:
@@ -675,6 +719,9 @@ class Handler(BaseHTTPRequestHandler):
                 "Set-Cookie",
                 f"deckyshare_token={STATE.token}; Path=/; HttpOnly; SameSite=Strict",
             )
+            remember = self.remember_device_header()
+            if remember:
+                self.send_header("Set-Cookie", remember)
             self.end_headers()
             self.wfile.write(data)
             return
@@ -695,7 +742,7 @@ class Handler(BaseHTTPRequestHandler):
             if STATE.selected and STATE.selected.exists():
                 st = STATE.selected.stat()
                 sel = {"name": STATE.selected.name, "path": str(STATE.selected), "size": st.st_size, "size_human": human_size(st.st_size)}
-            return self.send_json({"selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir)})
+            return self.send_json({"selected": sel, "transfers": STATE.snapshot(), "receive_dir": str(STATE.receive_dir), "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev, "shared": shared_info()})
         if u.path == "/api/roots":
             return self.send_json({"roots": [{"name": n, "path": str(p)} for n, p in allowed_roots()]})
         if u.path == "/api/browse":
@@ -722,10 +769,43 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"path": str(p), "parent": parent, "items": items})
         if u.path == "/download":
             return self.handle_download()
+        if u.path == "/shared":
+            return self.handle_shared_inline()
         self.send_error(404)
 
+    def _shared_from_query(self):
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        if "i" not in q:
+            return None, False
+        try:
+            i = int(q["i"][0])
+            return list(STATE.shared)[i], True
+        except (ValueError, IndexError):
+            return None, True
+
+    def handle_shared_inline(self):
+        """Full picture for the phone's gallery (not counted as a transfer)."""
+        p, _ = self._shared_from_query()
+        if not p or not p.is_file():
+            self.send_error(404, "Not shared")
+            return
+        data_len = p.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(p.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(data_len))
+        self.send_header("Cache-Control", "private, max-age=600")
+        self.end_headers()
+        with open(p, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
     def handle_download(self):
-        p = STATE.selected
+        p, from_list = self._shared_from_query()
+        if not from_list:
+            p = STATE.selected
         if not p or not p.exists() or not p.is_file():
             self.send_error(404, "No file selected")
             return
@@ -807,6 +887,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Set-Cookie", f"deckyshare_token={STATE.token}; Path=/; HttpOnly; SameSite=Strict")
+        remember = self.remember_device_header()
+        if remember:
+            self.send_header("Set-Cookie", remember)
         self.end_headers()
         self.wfile.write(body)
 
@@ -845,10 +928,29 @@ class Handler(BaseHTTPRequestHandler):
             if not path_allowed(p) or not p.is_file():
                 return self.send_json({"error": "File not allowed"}, 403)
             STATE.selected = p
+            STATE.shared = []
             return self.send_json({"ok": True, "name": p.name})
         if u.path == "/api/clear-selection":
             STATE.selected = None
             return self.send_json({"ok": True})
+        if u.path in ("/api/text", "/api/text-delete"):
+            n = int(self.headers.get("Content-Length", "0") or 0)
+            if n > text_share.MAX_CHARS * 4 + 1024:
+                return self.send_json({"error": "Text is too long"}, 413)
+            try:
+                data = json.loads(self.rfile.read(n) or b"{}")
+            except ValueError:
+                return self.send_json({"error": "Bad request"}, 400)
+            if u.path == "/api/text-delete":
+                TEXTS.delete(str(data.get("id") or ""))
+                return self.send_json({"ok": True, "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev})
+            source = device_from_user_agent(self.headers.get("User-Agent", "")) or "Phone"
+            try:
+                item = TEXTS.add(data.get("text"), source)
+            except ValueError as exc:
+                return self.send_json({"error": str(exc)}, 400)
+            notify_file_received(item, "text_received")
+            return self.send_json({"ok": True, "item": item, "texts": TEXTS.snapshot(), "texts_rev": TEXTS.rev})
         if u.path == "/api/cancel-upload":
             n = int(self.headers.get("Content-Length", "0"))
             data = json.loads(self.rfile.read(n) or b"{}")
@@ -979,6 +1081,18 @@ def selected_info():
         st = STATE.selected.stat()
         return {"name": STATE.selected.name, "path": str(STATE.selected), "size": st.st_size, "size_human": human_size(st.st_size)}
     return None
+
+
+def shared_info():
+    out = []
+    for i, p in enumerate(list(STATE.shared or [])):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        out.append({"i": i, "name": p.name, "size": st.st_size, "size_human": human_size(st.st_size),
+                    "image": p.suffix.lower() in steam_screens.IMAGE_EXTS})
+    return out
 
 
 def browse_info(path):
@@ -1204,6 +1318,36 @@ def wifi_diagnostics():
     return info
 
 
+def clips_output_dir():
+    return Path(decky.DECKY_USER_HOME) / "Videos" / "Steam Clips"
+
+
+def _clip_job_snapshot():
+    job = CLIPS.snapshot()
+    if job and job.get("size") is not None:
+        job["size_human"] = human_size(job["size"])
+    return job
+
+
+def _clip_ready(job):
+    """Offer a finished clip on the phone page ("Get from Deck")."""
+    try:
+        p = Path(job["path"])
+        if p.is_file() and path_allowed(p):
+            STATE.selected = p
+            STATE.shared = []
+    except Exception:
+        decky.logger.exception("DeckyShare could not select the exported clip")
+
+
+def _clip_id(payload, args, kwargs):
+    if isinstance(payload, dict):
+        return str(payload.get("id") or ""), payload
+    if isinstance(payload, str):
+        return payload, kwargs
+    return str(kwargs.get("id") or ""), kwargs
+
+
 class Plugin:
     async def bootstrap(self, *args, **kwargs):
         if STATE.server is None:
@@ -1227,6 +1371,7 @@ class Plugin:
             "receive_dir": str(STATE.receive_dir),
             "received": STATE.received_snapshot(),
             "roots": [{"name": n, "path": str(p)} for n, p in allowed_roots()],
+            "texts": TEXTS.snapshot(),
         }
 
     async def status(self, *args, **kwargs):
@@ -1247,6 +1392,12 @@ class Plugin:
             "transfers": STATE.snapshot(),
             "receive_dir": str(STATE.receive_dir),
             "received": STATE.received_snapshot(),
+            "clip_export": _clip_job_snapshot(),
+            "texts": TEXTS.snapshot(),
+            "typing": TYPIST.snapshot(),
+            "shared": shared_info(),
+            "roms": ROMS.info(),
+            "devices": DEVICES.list(),
         }
 
     async def shortcut_pairing_start(self, *args, **kwargs):
@@ -1273,6 +1424,7 @@ class Plugin:
         if not path_allowed(p) or not p.is_file():
             raise ValueError("File not allowed")
         STATE.selected = p
+        STATE.shared = []
         return {"ok": True, "selected": selected_info()}
 
     async def clear_selection(self, *args, **kwargs):
@@ -1285,8 +1437,10 @@ class Plugin:
             raise ValueError("Missing file path")
         p = Path(pth).expanduser().resolve()
         root = STATE.receive_dir.resolve()
+        moved_rom = any(Path(m["path"]).resolve() == p for m in ROMS.recent_moves())
         try:
-            p.relative_to(root)
+            if not moved_rom:
+                p.relative_to(root)
         except ValueError:
             raise ValueError("Only DeckyShare received files can be deleted")
         if not p.exists() or not p.is_file():
@@ -1299,6 +1453,174 @@ class Plugin:
     async def cancel_transfer(self, payload=None, *args, **kwargs):
         tid = payload.get("id") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("id"))
         return cancel_transfer_by_id(str(tid or ""))
+
+    async def list_clips(self, *args, **kwargs):
+        try:
+            clips = await asyncio.to_thread(steam_clips.list_clips, Path(decky.DECKY_USER_HOME))
+        except Exception as exc:
+            decky.logger.exception("DeckyShare could not list Steam clips")
+            return {"ok": False, "error": str(exc), "clips": []}
+        for c in clips:
+            c["size_human"] = human_size(c["size"])
+        return {"ok": True, "clips": clips, "export": _clip_job_snapshot()}
+
+    async def clip_thumbnail(self, payload=None, *args, **kwargs):
+        cid, _ = _clip_id(payload, args, kwargs)
+        home = Path(decky.DECKY_USER_HOME)
+        if not cid or not steam_clips.is_clip_dir(Path(cid), home):
+            return {"ok": False, "error": "Unknown clip"}
+        thumb = Path(cid) / "thumbnail.jpg"
+        try:
+            if thumb.stat().st_size > 512 * 1024:
+                return {"ok": False, "error": "Thumbnail too large"}
+            data = base64.b64encode(thumb.read_bytes()).decode("ascii")
+        except OSError:
+            return {"ok": False, "error": "No thumbnail"}
+        return {"ok": True, "src": "data:image/jpeg;base64," + data}
+
+    async def export_clip(self, payload=None, *args, **kwargs):
+        cid, opts = _clip_id(payload, args, kwargs)
+        home = Path(decky.DECKY_USER_HOME)
+        if not cid or not steam_clips.is_clip_dir(Path(cid), home):
+            return {"ok": False, "error": "Unknown clip"}
+        try:
+            job = await asyncio.to_thread(CLIPS.start, Path(cid), clips_output_dir(), (opts or {}).get("game"), _clip_ready)
+        except steam_clips.ClipError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "export": _clip_job_snapshot() or job}
+
+    async def list_screenshots(self, *args, **kwargs):
+        try:
+            items = await asyncio.to_thread(steam_screens.list_screenshots, Path(decky.DECKY_USER_HOME))
+        except Exception as exc:
+            decky.logger.exception("DeckyShare could not list screenshots")
+            return {"ok": False, "error": str(exc), "items": []}
+        for it in items:
+            it["size_human"] = human_size(it["size"])
+        return {"ok": True, "items": items}
+
+    async def screenshot_thumbnails(self, payload=None, *args, **kwargs):
+        ids = (payload or {}).get("ids") if isinstance(payload, dict) else kwargs.get("ids")
+        home = Path(decky.DECKY_USER_HOME)
+
+        def load():
+            out = {}
+            for sid in list(ids or [])[:24]:
+                if not steam_screens.is_screenshot(sid, home):
+                    continue
+                thumb = steam_screens.thumbnail_path(Path(sid))
+                try:
+                    if thumb.stat().st_size > steam_screens.MAX_THUMB_BYTES:
+                        continue
+                    mime = mimetypes.guess_type(thumb.name)[0] or "image/jpeg"
+                    out[sid] = f"data:{mime};base64," + base64.b64encode(thumb.read_bytes()).decode("ascii")
+                except OSError:
+                    continue
+            return out
+
+        return {"ok": True, "thumbs": await asyncio.to_thread(load)}
+
+    async def share_files(self, payload=None, *args, **kwargs):
+        paths = (payload or {}).get("paths") if isinstance(payload, dict) else kwargs.get("paths")
+        home = Path(decky.DECKY_USER_HOME)
+        chosen = []
+        for raw in list(paths or [])[:100]:
+            p = Path(str(raw)).expanduser()
+            if steam_screens.is_screenshot(p, home) or (path_allowed(p) and p.is_file()):
+                rp = p.resolve()
+                if rp not in chosen:
+                    chosen.append(rp)
+        if not chosen:
+            return {"ok": False, "error": "Nothing to share"}
+        STATE.shared = chosen
+        STATE.selected = None
+        return {"ok": True, "shared": shared_info()}
+
+    async def clear_shared(self, *args, **kwargs):
+        STATE.shared = []
+        return {"ok": True}
+
+    async def send_text(self, payload=None, *args, **kwargs):
+        text = payload.get("text") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("text"))
+        try:
+            item = TEXTS.add(text, "Deck")
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "item": item, "texts": TEXTS.snapshot()}
+
+    async def delete_text(self, payload=None, *args, **kwargs):
+        tid = payload.get("id") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("id"))
+        TEXTS.delete(str(tid or ""))
+        return {"ok": True, "texts": TEXTS.snapshot()}
+
+    async def type_text(self, payload=None, *args, **kwargs):
+        opts = payload if isinstance(payload, dict) else kwargs
+        text = opts.get("text") if isinstance(opts, dict) else payload
+        if not text and isinstance(opts, dict) and opts.get("id"):
+            match = [t for t in TEXTS.snapshot() if t.get("id") == opts.get("id")]
+            text = match[0]["text"] if match else ""
+        try:
+            job = TYPIST.start(str(text or ""), float((opts or {}).get("delay", 1.5)) if isinstance(opts, dict) else 1.5)
+        except deck_keyboard.KeyboardError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "typing": job}
+
+    async def forget_device(self, payload=None, *args, **kwargs):
+        did = payload.get("id") if isinstance(payload, dict) else (payload if isinstance(payload, str) else kwargs.get("id"))
+        if DEVICES.forget(str(did or "")):
+            # New session key so a forgotten browser cannot keep using its old one.
+            # Remembered devices keep working through their own keys.
+            STATE.token = secrets.token_urlsafe(12)
+        return {"ok": True, "devices": DEVICES.list()}
+
+    async def forget_all_devices(self, *args, **kwargs):
+        DEVICES.forget_all()
+        STATE.token = secrets.token_urlsafe(12)
+        return {"ok": True, "devices": []}
+
+    async def sort_rom(self, payload=None, *args, **kwargs):
+        pth = extract_path(payload, args, kwargs)
+        if not pth:
+            return {"ok": False, "error": "Missing file"}
+        p = Path(pth).expanduser().resolve()
+        try:
+            p.relative_to(STATE.receive_dir.resolve())
+        except ValueError:
+            return {"ok": False, "error": "Only received files can be moved"}
+        if not p.is_file():
+            return {"ok": False, "error": "File not found"}
+        job = ROMS.maybe_sort(p, SENDERS.get(p.name), delay=0, force=True,
+                              on_done=lambda r: notify_file_received(r, "rom_sorted"))
+        if not job:
+            hint = ROMS.hint(p)
+            return {"ok": False, "error": "No matching roms folder for this game" if hint else "Not a recognised game file"}
+        return {"ok": True, "job": job}
+
+    async def set_rom_sort(self, payload=None, *args, **kwargs):
+        value = payload.get("enabled") if isinstance(payload, dict) else kwargs.get("enabled", payload)
+        ROMS.set_enabled(bool(value))
+        return {"ok": True, "roms": ROMS.info()}
+
+    async def read_clipboard(self, *args, **kwargs):
+        try:
+            text, how = await asyncio.wait_for(asyncio.to_thread(deck_clipboard.read_clipboard), timeout=6)
+        except Exception as exc:  # noqa: BLE001 - shown in the panel
+            return {"ok": False, "error": f"Could not read the clipboard: {exc}"}
+        if text is None:
+            return {"ok": False, "error": how}
+        return {"ok": True, "text": text[:text_share.MAX_CHARS], "how": how}
+
+    async def cancel_typing(self, *args, **kwargs):
+        TYPIST.stop()
+        return {"ok": True}
+
+    async def clear_texts(self, *args, **kwargs):
+        TEXTS.clear()
+        return {"ok": True, "texts": []}
+
+    async def cancel_clip_export(self, *args, **kwargs):
+        CLIPS.stop()
+        return {"ok": True}
 
     async def wifi_info(self, *args, **kwargs):
         try:
