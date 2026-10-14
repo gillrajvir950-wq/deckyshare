@@ -286,6 +286,26 @@ function timeAgo(ts){
   if(s<172800)return "yesterday";
   return `${Math.round(s/86400)} days ago`;
 }
+const NOTES_SEEN_KEY="deckyshare.notesSeen";
+function notesSeen(){try{return window.localStorage.getItem(NOTES_SEEN_KEY)||"";}catch(e){return "";}}
+function markNotesSeen(v){try{window.localStorage.setItem(NOTES_SEEN_KEY,String(v||""));}catch(e){}}
+function cleanNotes(text){
+  const out=[];
+  for(const raw of String(text||"").split(/\r?\n/)){
+    if(/^\s*#{1,6}\s/.test(raw)||!raw.trim())continue;
+    const bullet=/^\s*[-*+]\s+/.test(raw);
+    const t=raw.replace(/^\s*[-*+]\s+/,"").replace(/\[([^\]]+)\]\([^)]+\)/g,"$1").replace(/\*\*|__|`/g,"").trim();
+    if(t)out.push({text:t,bullet});
+  }
+  return out;
+}
+function NotesList({lines,limit,expanded,onMore}){
+  if(!lines||!lines.length)return null;
+  const shown=expanded?lines:lines.slice(0,limit);
+  return h("div",null,
+    shown.map((l,i)=>h("div",{key:i,style:{display:"flex",gap:6,fontSize:10.5,lineHeight:1.45,opacity:.85,marginTop:i?4:0}},l.bullet&&h("span",{style:{opacity:.5}},"•"),h("span",null,l.text))),
+    !expanded&&lines.length>limit&&h(MiniButton,{compact:true,onClick:onMore},`Show all (${lines.length})`));
+}
 function clipGameName(appid){
   try{
     const store=window.appStore;
@@ -384,6 +404,7 @@ function makePanel(){
     const [pasteHint,setPasteHint]=useState(null);
     const composeRef=useRef(null);
     const [romMoving,setRomMoving]=useState(null);
+    const [whatsNew,setWhatsNew]=useState(null),[notesExpanded,setNotesExpanded]=useState(false),[updNotesExpanded,setUpdNotesExpanded]=useState(false),[notesSeenV,setNotesSeenV]=useState(notesSeen());
     const [pasteBusy,setPasteBusy]=useState(false),[forgetAllArmed,setForgetAllArmed]=useState(false),[shareResetArmed,setShareResetArmed]=useState(false);
     const [typingLocal,setTypingLocal]=useState(false),[inputLog,setInputLog]=useState([]);
     const logInput=line=>setInputLog(v=>[...v.slice(-7),line]);
@@ -745,7 +766,9 @@ function makePanel(){
     const typingState=status&&status.typing&&status.typing.state;
     useEffect(()=>{const j=status&&status.typing;if(typingState==="error"&&j&&j.error&&j.error!=="Cancelled")setErr("Type: "+j.error);},[typingState]);
     useEffect(()=>{bootstrap();},[]);
-    useEffect(()=>{if(!status)return;loadWifi();checkUpdate(false);},[!!status]);
+    useEffect(()=>{if(!status)return;loadWifi();checkUpdate(false);call("whats_new").then(r=>{if(r&&r.ok)setWhatsNew(r);}).catch(()=>{});},[!!status]);
+    const notesNew=!!(whatsNew&&whatsNew.lines&&whatsNew.lines.length&&notesSeenV!==whatsNew.version);
+    useEffect(()=>{if(openSections.updates&&notesNew){markNotesSeen(whatsNew.version);const t=setTimeout(()=>setNotesSeenV(whatsNew.version),4000);return()=>clearTimeout(t);}},[openSections.updates,notesNew]);
     async function cancelTransfer(t){
       if(cancelArmed!==t.id){setCancelArmed(t.id);setTimeout(()=>setCancelArmed(x=>x===t.id?null:x),4000);return;}
       setCancelArmed(null);
@@ -935,10 +958,13 @@ function makePanel(){
           wifiRows(wifi).map(([k,v])=>h("div",{key:k,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0"}},h("span",{style:{opacity:.62}},k),h("span",{style:{fontWeight:650,textAlign:"right",wordBreak:"break-word"}},v))),
           (wifi.hints||[]).map((t,i)=>h("div",{key:"hint"+i,style:{fontSize:11,lineHeight:1.35,marginTop:6,padding:"6px 8px",borderRadius:8,background:"rgba(102,192,244,.10)",border:"1px solid rgba(102,192,244,.25)"}},t))),
         h("div",{style:{marginTop:8}},h(MiniButton,{onClick:loadWifi,compact:true},wifiBusy?"Checking…":"Refresh"))),
-      !busy&&h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:null,meta:updateMeta(updateInfo),open:openSections.updates,onToggle:()=>toggleSection("updates")},
+      !busy&&h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:null,meta:updateMeta(updateInfo),badge:notesNew?"New":null,open:openSections.updates,onToggle:()=>toggleSection("updates")},
         h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:(status.version?`Installed: v${status.version}`:"")),
+        whatsNew&&whatsNew.lines&&whatsNew.lines.length>0&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.07)",marginBottom:8}},
+          h("div",{style:{fontWeight:760,fontSize:12,marginBottom:6}},`What's new in v${whatsNew.version}`),
+          h(NotesList,{lines:whatsNew.lines,limit:4,expanded:notesExpanded,onMore:()=>setNotesExpanded(true)})),
         updateInfo&&updateInfo.installed_now&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(70,210,125,.10)",border:"1px solid rgba(80,220,140,.18)",fontSize:11,lineHeight:1.45,marginBottom:8}},`✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`),
-        updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{fontSize:10,opacity:.68,whiteSpace:"pre-wrap",maxHeight:72,overflow:"hidden",marginTop:6}},updateInfo.notes)),
+        updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{marginTop:7}},h(NotesList,{lines:cleanNotes(updateInfo.notes),limit:4,expanded:updNotesExpanded,onMore:()=>setUpdNotesExpanded(true)}))),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.same&&h("div",{style:{fontSize:11,opacity:.68,marginBottom:8}},`✓ You're on the latest stable release (v${updateInfo.latest}).`),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.ahead&&h("div",{style:{fontSize:11,opacity:.68,marginBottom:8}},`Development build detected. Latest stable release is v${updateInfo.latest}.`),
         updateInfo&&!updateInfo.ok&&updateInfo.error&&h("div",{style:{fontSize:11,color:"#ffb3b3",marginBottom:8,wordBreak:"break-word"}},updateInfo.error),

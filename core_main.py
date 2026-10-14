@@ -30,6 +30,7 @@ import deck_keyboard
 import deck_clipboard
 import rom_sort
 import trusted_devices
+import release_notes
 import steam_screens
 from share_sheet import (
     authorized as share_sheet_authorized,
@@ -1582,6 +1583,9 @@ class Plugin:
             # Remembered devices keep working through their own keys.
             STATE.token = secrets.token_urlsafe(12)
         return {"ok": True, "devices": DEVICES.list()}
+
+    async def whats_new(self, *args, **kwargs):
+        return {"ok": True, **release_notes.installed_notes(Path(__file__).resolve().parent, plugin_version())}
 
     async def reset_share_key(self, *args, **kwargs):
         """Cut off the iPhone Shortcut / Android app by replacing their key."""

@@ -1,12 +1,11 @@
 # Changelog
 
-## v1.3.1-rc.1
+## v1.3.1
 
-Security fixes:
-
-- The session key, Share Sheet key and pairing codes are no longer written to the Decky log (they appear as `***`).
-- Phones and computers can no longer browse or download arbitrary files on the Deck through the old `/api/browse`, `/api/roots` and `/api/select` endpoints (unused by the phone page). Files to download are chosen on the Deck only.
-- The iPhone Shortcut / Android app key is now listed under **Remembered devices** with **Reset key**. **Forget all** resets it too.
+- Phones and computers can no longer look through files on your Deck. You choose what to send on the Deck.
+- The iPhone Shortcut / Android app access now shows up under Remembered devices and can be reset. Forget all resets it too.
+- Access keys and pairing codes are no longer written to the Decky log.
+- New: More → Updates now shows what changed in each version.
 
 ## v1.3.0
 
