@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.1
+
+- Phones and computers can no longer look through files on your Deck. You choose what to send on the Deck.
+- The iPhone Shortcut / Android app access now shows up under Remembered devices and can be reset. Forget all resets it too.
+- Access keys and pairing codes are no longer written to the Decky log.
+- New: More → Updates now shows what changed in each version.
+
 ## v1.3.0
 
 Everything from the 1.3.0 test builds, tested on a Steam Deck OLED with an iPhone:

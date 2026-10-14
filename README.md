@@ -68,7 +68,8 @@ Transfers go phone → router → Deck over Wi-Fi, so the Wi-Fi link sets the sp
 
 - DeckyShare listens on your local network only while Decky runs.
 - Every phone/computer needs the session token from the QR code, or a one-time 6-digit code (expires after 10 minutes, rate limited).
-- Use it on networks you trust (home Wi-Fi), not on public Wi-Fi.
+- Devices that connected once are remembered until you forget them under **Settings & support → Remembered devices**.
+- The connection is plain HTTP on your local network: the key decides who may connect, but transfers are not encrypted. Use it on networks you trust (home Wi-Fi), not on public Wi-Fi.
 - **Upgrade from v1.0.0**: v1.0.0 had no access protection. Install v1.1.0 or later.
 
 ## Support

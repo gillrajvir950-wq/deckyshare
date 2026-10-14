@@ -286,6 +286,26 @@ function timeAgo(ts){
   if(s<172800)return "yesterday";
   return `${Math.round(s/86400)} days ago`;
 }
+const NOTES_SEEN_KEY="deckyshare.notesSeen";
+function notesSeen(){try{return window.localStorage.getItem(NOTES_SEEN_KEY)||"";}catch(e){return "";}}
+function markNotesSeen(v){try{window.localStorage.setItem(NOTES_SEEN_KEY,String(v||""));}catch(e){}}
+function cleanNotes(text){
+  const out=[];
+  for(const raw of String(text||"").split(/\r?\n/)){
+    if(/^\s*#{1,6}\s/.test(raw)||!raw.trim())continue;
+    const bullet=/^\s*[-*+]\s+/.test(raw);
+    const t=raw.replace(/^\s*[-*+]\s+/,"").replace(/\[([^\]]+)\]\([^)]+\)/g,"$1").replace(/\*\*|__|`/g,"").trim();
+    if(t)out.push({text:t,bullet});
+  }
+  return out;
+}
+function NotesList({lines,limit,expanded,onMore}){
+  if(!lines||!lines.length)return null;
+  const shown=expanded?lines:lines.slice(0,limit);
+  return h("div",null,
+    shown.map((l,i)=>h("div",{key:i,style:{display:"flex",gap:6,fontSize:10.5,lineHeight:1.45,opacity:.85,marginTop:i?4:0}},l.bullet&&h("span",{style:{opacity:.5}},"•"),h("span",null,l.text))),
+    !expanded&&lines.length>limit&&h(MiniButton,{compact:true,onClick:onMore},`Show all (${lines.length})`));
+}
 function clipGameName(appid){
   try{
     const store=window.appStore;
@@ -384,7 +404,8 @@ function makePanel(){
     const [pasteHint,setPasteHint]=useState(null);
     const composeRef=useRef(null);
     const [romMoving,setRomMoving]=useState(null);
-    const [pasteBusy,setPasteBusy]=useState(false),[forgetAllArmed,setForgetAllArmed]=useState(false);
+    const [whatsNew,setWhatsNew]=useState(null),[notesExpanded,setNotesExpanded]=useState(false),[updNotesExpanded,setUpdNotesExpanded]=useState(false),[notesSeenV,setNotesSeenV]=useState(notesSeen());
+    const [pasteBusy,setPasteBusy]=useState(false),[forgetAllArmed,setForgetAllArmed]=useState(false),[shareResetArmed,setShareResetArmed]=useState(false);
     const [typingLocal,setTypingLocal]=useState(false),[inputLog,setInputLog]=useState([]);
     const logInput=line=>setInputLog(v=>[...v.slice(-7),line]);
     const [shots,setShots]=useState(null),[shotThumbs,setShotThumbs]=useState({}),[shotPicked,setShotPicked]=useState([]),[shotLimit,setShotLimit]=useState(12),[shotBusy,setShotBusy]=useState(false);
@@ -664,10 +685,15 @@ function makePanel(){
     }
     async function setRomSort(enabled){try{const r=await call("set_rom_sort",{enabled});setStatus(x=>({...x,roms:r&&r.roms||x.roms}));}catch(e){setErr("ROMs: "+String(e&&e.message||e));}}
     async function forgetDevice(id){try{const r=await call("forget_device",{id});setStatus(x=>({...x,devices:r&&r.devices||[]}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}}
+    async function resetShareKey(){
+      if(!shareResetArmed){setShareResetArmed(true);setTimeout(()=>setShareResetArmed(false),5000);return;}
+      setShareResetArmed(false);
+      try{await call("reset_share_key");setStatus(x=>({...x,share_key_used:null}));toast(backendAPI,"Shortcut / app key reset");}catch(e){setErr("Devices: "+String(e&&e.message||e));}
+    }
     async function forgetAllDevices(){
       if(!forgetAllArmed){setForgetAllArmed(true);setTimeout(()=>setForgetAllArmed(false),5000);return;}
       setForgetAllArmed(false);
-      try{await call("forget_all_devices");setStatus(x=>({...x,devices:[]}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}
+      try{await call("forget_all_devices");setStatus(x=>({...x,devices:[],share_key_used:null}));}catch(e){setErr("Devices: "+String(e&&e.message||e));}
     }
     async function sendText(){
       const el=composeRef.current;
@@ -740,7 +766,9 @@ function makePanel(){
     const typingState=status&&status.typing&&status.typing.state;
     useEffect(()=>{const j=status&&status.typing;if(typingState==="error"&&j&&j.error&&j.error!=="Cancelled")setErr("Type: "+j.error);},[typingState]);
     useEffect(()=>{bootstrap();},[]);
-    useEffect(()=>{if(!status)return;loadWifi();checkUpdate(false);},[!!status]);
+    useEffect(()=>{if(!status)return;loadWifi();checkUpdate(false);call("whats_new").then(r=>{if(r&&r.ok)setWhatsNew(r);}).catch(()=>{});},[!!status]);
+    const notesNew=!!(whatsNew&&whatsNew.lines&&whatsNew.lines.length&&notesSeenV!==whatsNew.version);
+    useEffect(()=>{if(openSections.updates&&notesNew){markNotesSeen(whatsNew.version);const t=setTimeout(()=>setNotesSeenV(whatsNew.version),4000);return()=>clearTimeout(t);}},[openSections.updates,notesNew]);
     async function cancelTransfer(t){
       if(cancelArmed!==t.id){setCancelArmed(t.id);setTimeout(()=>setCancelArmed(x=>x===t.id?null:x),4000);return;}
       setCancelArmed(null);
@@ -930,10 +958,13 @@ function makePanel(){
           wifiRows(wifi).map(([k,v])=>h("div",{key:k,style:{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,padding:"2px 0"}},h("span",{style:{opacity:.62}},k),h("span",{style:{fontWeight:650,textAlign:"right",wordBreak:"break-word"}},v))),
           (wifi.hints||[]).map((t,i)=>h("div",{key:"hint"+i,style:{fontSize:11,lineHeight:1.35,marginTop:6,padding:"6px 8px",borderRadius:8,background:"rgba(102,192,244,.10)",border:"1px solid rgba(102,192,244,.25)"}},t))),
         h("div",{style:{marginTop:8}},h(MiniButton,{onClick:loadWifi,compact:true},wifiBusy?"Checking…":"Refresh"))),
-      !busy&&h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:null,meta:updateMeta(updateInfo),open:openSections.updates,onToggle:()=>toggleSection("updates")},
+      !busy&&h(AccordionCard,{icon:"update",tone:"gray",title:"Updates",sub:null,meta:updateMeta(updateInfo),badge:notesNew?"New":null,open:openSections.updates,onToggle:()=>toggleSection("updates")},
         h("div",{style:{fontSize:11,opacity:.68,lineHeight:1.45,marginBottom:8}},updateInfo&&updateInfo.current?`Installed: v${updateInfo.current}`:(status.version?`Installed: v${status.version}`:"")),
+        whatsNew&&whatsNew.lines&&whatsNew.lines.length>0&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(255,255,255,.035)",border:"1px solid rgba(255,255,255,.07)",marginBottom:8}},
+          h("div",{style:{fontWeight:760,fontSize:12,marginBottom:6}},`What's new in v${whatsNew.version}`),
+          h(NotesList,{lines:whatsNew.lines,limit:4,expanded:notesExpanded,onMore:()=>setNotesExpanded(true)})),
         updateInfo&&updateInfo.installed_now&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(70,210,125,.10)",border:"1px solid rgba(80,220,140,.18)",fontSize:11,lineHeight:1.45,marginBottom:8}},`✓ ${updateInfo.installed} installed safely. Reload DeckyShare from Decky settings to finish.`),
-        updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{fontSize:10,opacity:.68,whiteSpace:"pre-wrap",maxHeight:72,overflow:"hidden",marginTop:6}},updateInfo.notes)),
+        updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.available&&h("div",{style:{padding:"9px",borderRadius:10,background:"rgba(71,142,230,.10)",border:"1px solid rgba(100,180,255,.18)",marginBottom:8}},h("div",{style:{fontWeight:760,fontSize:12}},`v${updateInfo.latest} available`),h("div",{style:{fontSize:10,opacity:.6,marginTop:3}},`${fmt(updateInfo.asset_size||0)} • SHA-256 verified by GitHub`),updateInfo.notes&&h("div",{style:{marginTop:7}},h(NotesList,{lines:cleanNotes(updateInfo.notes),limit:4,expanded:updNotesExpanded,onMore:()=>setUpdNotesExpanded(true)}))),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.same&&h("div",{style:{fontSize:11,opacity:.68,marginBottom:8}},`✓ You're on the latest stable release (v${updateInfo.latest}).`),
         updateInfo&&updateInfo.ok&&updateInfo.latest&&updateInfo.ahead&&h("div",{style:{fontSize:11,opacity:.68,marginBottom:8}},`Development build detected. Latest stable release is v${updateInfo.latest}.`),
         updateInfo&&!updateInfo.ok&&updateInfo.error&&h("div",{style:{fontSize:11,color:"#ffb3b3",marginBottom:8,wordBreak:"break-word"}},updateInfo.error),
@@ -956,12 +987,15 @@ function makePanel(){
           status.roms&&!status.roms.found&&status.roms.checked&&h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,marginTop:5,wordBreak:"break-all"}},"Looked in: "+status.roms.checked.join(" • ")),
           status.roms&&status.roms.found&&h("div",{style:{fontSize:9,opacity:.45,lineHeight:1.4,marginTop:5,wordBreak:"break-all"}},`${status.roms.root} • GBA, SNES, N64, DS, 3DS, Switch, PS1, PS2, PSP, GameCube, Wii and more. Run Steam ROM Manager to add new games to Steam.`)),
         h(SubSection,{title:"Remembered devices"},
-          (!status.devices||!status.devices.length)?h("div",{style:{fontSize:11,opacity:.6,lineHeight:1.35}},"None yet. A phone or computer is remembered after it connects once, so it does not need the QR code again after a restart."):
-          h("div",null,
-            status.devices.map(d=>h("div",{key:d.id,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:"1px solid rgba(255,255,255,.05)"}},
-              h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontSize:11,fontWeight:720}},d.name||"Device"),h("div",{style:{fontSize:9,opacity:.5}},`Last used ${timeAgo(d.last_seen)}`)),
-              h(MiniButton,{compact:true,tone:"danger",onClick:()=>forgetDevice(d.id)},"Forget"))),
-            status.devices.length>1&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:forgetAllDevices},forgetAllArmed?"Press again to forget all":"Forget all")))),
+          h("div",{style:{fontSize:10,opacity:.55,lineHeight:1.4,marginBottom:6}},"A device that connected once stays allowed until you forget it here. Forgetting takes effect immediately."),
+          (status.devices||[]).map(d=>h("div",{key:d.id,style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:"1px solid rgba(255,255,255,.05)"}},
+            h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontSize:11,fontWeight:720}},d.name||"Device"),h("div",{style:{fontSize:9,opacity:.5}},`Last used ${timeAgo(d.last_seen)}`)),
+            h(MiniButton,{compact:true,tone:"danger",onClick:()=>forgetDevice(d.id)},"Forget"))),
+          (!status.devices||!status.devices.length)&&h("div",{style:{fontSize:11,opacity:.6,padding:"2px 0"}},"No remembered devices."),
+          h("div",{style:{display:"flex",alignItems:"center",gap:8,padding:"5px 0",borderTop:"1px solid rgba(255,255,255,.05)"}},
+            h("div",{style:{minWidth:0,flex:1}},h("div",{style:{fontSize:11,fontWeight:720}},"iPhone Shortcut / Android app"),h("div",{style:{fontSize:9,opacity:.5}},status.share_key_used?`Last used ${timeAgo(status.share_key_used)}`:"Not used recently")),
+            h(MiniButton,{compact:true,tone:"danger",onClick:resetShareKey},shareResetArmed?"Press again":"Reset key")),
+          status.devices&&status.devices.length>0&&h("div",{style:{marginTop:6}},h(MiniButton,{tone:"danger",onClick:forgetAllDevices},forgetAllArmed?"Press again to forget all":"Forget all"))),
         h(SubSection,{title:"Support DeckyShare"},h(DialogButton,{onClick:()=>{try{window.open("https://buymeacoffee.com/Gillrv","_blank");}catch(e){}},style:{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid rgba(255,196,92,.30)",background:"rgba(255,183,65,.10)",color:"#ffe0a3",fontWeight:750}},"Buy me a coffee"))
       ),
       err&&h("div",{style:{color:"#ffb3b3",marginTop:8,fontSize:11,wordBreak:"break-word"}},err)
